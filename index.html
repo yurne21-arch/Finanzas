@@ -192,30 +192,44 @@ h1{font-size:1.6rem;font-weight:700;margin-bottom:2px;}
 </div>
 
 <script>
-const GAS_URL='https://script.google.com/macros/s/AKfycbwXtwV6QPRtiZn9cRzNKocyiqxs0QoFp3W3RWLjM1DOZbI3lUE-ukxRyY3XwsRwCYLsUA/exec';
+const GAS_URL='https://script.google.com/macros/s/AKfycbzU--yfyOP5jM545nsIJ1z3mkFnteCFCnyfnUAZ0MwiHA3nCEV0qvs5YwoxtbVUVnssYQ/exec';
 
-// Wrapper que reemplaza google.script.run usando fetch
-const window={};
-window.GAS={
+let _gasCallbacks={};
+let _gasCounter=0;
+
+function gasCall(fn, params, onOk, onFail){
+  const cbName='_gasCb'+(++_gasCounter);
+  _gasCallbacks[cbName]={ok:onOk,fail:onFail};
+  window[cbName]=function(data){
+    const cb=_gasCallbacks[cbName];
+    delete _gasCallbacks[cbName];
+    delete window[cbName];
+    if(script.parentNode)script.parentNode.removeChild(script);
+    if(cb&&cb.ok)cb.ok(data);
+  };
+  const script=document.createElement('script');
+  script.onerror=function(){
+    const cb=_gasCallbacks[cbName];
+    delete _gasCallbacks[cbName];
+    delete window[cbName];
+    if(cb&&cb.fail)cb.fail(new Error('Error de red'));
+    else document.getElementById('resumen-content').innerHTML='<div class="alerta danger">Error conectando al servidor. Intenta de nuevo.</div>';
+  };
+  script.src=GAS_URL+'?fn='+fn+'&params='+encodeURIComponent(JSON.stringify(params))+'&callback='+cbName;
+  document.head.appendChild(script);
+}
+
+const GAS={
   _ok:null,_fail:null,
-  withSuccessHandler(fn){this._ok=fn;return this;},
-  withFailureHandler(fn){this._fail=fn;return this;},
-  _call(fn,params){
-    const ok=this._ok,fail=this._fail;
-    this._ok=null;this._fail=null;
-    const url=GAS_URL+'?fn='+fn+'&params='+encodeURIComponent(JSON.stringify(params));
-    fetch(url)
-      .then(r=>r.json())
-      .then(d=>{if(ok)ok(d);})
-      .catch(e=>{if(fail)fail(e);else console.error(e);});
-  },
-  getDatosMes(m,a){this._call('getDatosMes',[m,a]);},
-  guardarGasto(det,cat,monto,quien,tar,fecha){this._call('guardarGasto',[det,cat,monto,quien,tar,fecha]);},
-  guardarIngreso(det,tipo,monto,quien,fecha){this._call('guardarIngreso',[det,tipo,monto,quien,fecha]);},
-  registrarPagoTarjeta(tar,monto,fecha){this._call('registrarPagoTarjeta',[tar,monto,fecha]);},
-  guardarSaldoCuenta(cta,saldo){this._call('guardarSaldoCuenta',[cta,saldo]);},
-  borrarGasto(idx,m,a){this._call('borrarGasto',[idx,m,a]);},
-  borrarIngreso(idx,m,a){this._call('borrarIngreso',[idx,m,a]);}
+  withSuccessHandler(fn){const g=Object.create(GAS);g._ok=fn;g._fail=this._fail;return g;},
+  withFailureHandler(fn){const g=Object.create(GAS);g._fail=fn;g._ok=this._ok;return g;},
+  getDatosMes(m,a){gasCall('getDatosMes',[m,a],this._ok,this._fail);},
+  guardarGasto(det,cat,monto,quien,tar,fecha){gasCall('guardarGasto',[det,cat,monto,quien,tar,fecha],this._ok,this._fail);},
+  guardarIngreso(det,tipo,monto,quien,fecha){gasCall('guardarIngreso',[det,tipo,monto,quien,fecha],this._ok,this._fail);},
+  registrarPagoTarjeta(tar,monto,fecha){gasCall('registrarPagoTarjeta',[tar,monto,fecha],this._ok,this._fail);},
+  guardarSaldoCuenta(cta,saldo){gasCall('guardarSaldoCuenta',[cta,saldo],this._ok,this._fail);},
+  borrarGasto(idx,m,a){gasCall('borrarGasto',[idx,m,a],this._ok,this._fail);},
+  borrarIngreso(idx,m,a){gasCall('borrarIngreso',[idx,m,a],this._ok,this._fail);}
 };
 
 const MESES=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
@@ -316,7 +330,7 @@ function labels(){
 }
 function cargar(){
   if(cache){rAll(cache);return;}
-  window.GAS.withSuccessHandler(d=>{cache=d;rAll(d);})
+  GAS.withSuccessHandler(d=>{cache=d;rAll(d);})
     .withFailureHandler(e=>{document.getElementById('resumen-content').innerHTML=`<div class="alerta danger">Error: ${e.message}</div>`;})
     .getDatosMes(mes,anio);
 }
@@ -813,7 +827,7 @@ function pagarTar(id,nombre,monto,gastMes,cuotaMes){
     if(t.saldoDeuda===0)t.cuotaMes=0;
     saveTarjetas(tars);
   }
-  window.GAS.withSuccessHandler(()=>{cache=null;cargar();}).registrarPagoTarjeta(nombre,monto,new Date().toLocaleDateString('es-CL'));
+  GAS.withSuccessHandler(()=>{cache=null;cargar();}).registrarPagoTarjeta(nombre,monto,new Date().toLocaleDateString('es-CL'));
 }
 
 // ── ACCIONES DEUDAS ───────────────────────────────────────────
@@ -894,7 +908,7 @@ function editCta(nombre,actual){
   const c=cts.find(x=>x.cuenta===nombre);
   if(c)c.saldo=m;else cts.push({cuenta:nombre,saldo:m});
   saveCtas(cts);
-  window.GAS.withSuccessHandler(()=>{cache=null;cargar();}).guardarSaldoCuenta(nombre,m);
+  GAS.withSuccessHandler(()=>{cache=null;cargar();}).guardarSaldoCuenta(nombre,m);
 }
 
 // ── REGISTRO ──────────────────────────────────────────────────
@@ -948,7 +962,7 @@ function guardarG(){
     for(let i=0;i<nc;i++){
       let mC=mI+i,aC=aI;while(mC>12){mC-=12;aC++;}
       const fC=`01/${String(mC).padStart(2,'0')}/${aC}`;
-      window.GAS.withSuccessHandler(()=>{
+      GAS.withSuccessHandler(()=>{
         done++;
         if(done===nc){
           document.getElementById('q-det').value='';document.getElementById('q-monto').value='';
@@ -960,7 +974,7 @@ function guardarG(){
     }
   } else {
     document.getElementById('ok-g').innerHTML=`<div class="ok-msg">Guardando...</div>`;
-    window.GAS.withSuccessHandler(()=>{
+    GAS.withSuccessHandler(()=>{
       document.getElementById('q-det').value='';document.getElementById('q-monto').value='';
       document.getElementById('ok-g').innerHTML=`<div class="ok-msg">Guardado: $${fmt(monto)} — ${det}</div>`;
       setTimeout(()=>{document.getElementById('ok-g').innerHTML='';},3000);
@@ -974,7 +988,7 @@ function guardarI(){
   const monto=parseInt(document.getElementById('qi-monto').value)||0;
   if(!det||!monto){alert('Escribe el detalle y el monto');return;}
   document.getElementById('ok-i').innerHTML=`<div class="ok-msg">Guardando...</div>`;
-  window.GAS.withSuccessHandler(()=>{
+  GAS.withSuccessHandler(()=>{
     document.getElementById('qi-det').value='';document.getElementById('qi-monto').value='';
     document.getElementById('ok-i').innerHTML=`<div class="ok-msg">Guardado: +$${fmt(monto)} — ${det}</div>`;
     setTimeout(()=>{document.getElementById('ok-i').innerHTML='';},3000);
@@ -982,8 +996,8 @@ function guardarI(){
   }).withFailureHandler(e=>{document.getElementById('ok-i').innerHTML=`<div class="alerta danger">Error: ${e.message}</div>`;})
   .guardarIngreso(det,document.getElementById('qi-tipo').value,monto,document.getElementById('qi-quien').value,new Date().toLocaleDateString('es-CL'));
 }
-function delG(idx){if(!confirm('Borrar este gasto?'))return;window.GAS.withSuccessHandler(()=>{cache=null;cargar();}).borrarGasto(idx,mes,anio);}
-function delI(idx){if(!confirm('Borrar este ingreso?'))return;window.GAS.withSuccessHandler(()=>{cache=null;cargar();}).borrarIngreso(idx,mes,anio);}
+function delG(idx){if(!confirm('Borrar este gasto?'))return;GAS.withSuccessHandler(()=>{cache=null;cargar();}).borrarGasto(idx,mes,anio);}
+function delI(idx){if(!confirm('Borrar este ingreso?'))return;GAS.withSuccessHandler(()=>{cache=null;cargar();}).borrarIngreso(idx,mes,anio);}
 
 labels();cargar();actualizarSelectTarjetas();
 </script>
