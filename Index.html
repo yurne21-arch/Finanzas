@@ -139,6 +139,11 @@ h1{font-size:1.6rem;font-weight:700;margin-bottom:2px;}
           <select id="qi-quien"><option>Yurby</option><option>Juan</option><option>Colbox</option><option>Ambos</option></select>
           <select id="qi-tipo"><option>Sueldo</option><option>Bono</option><option>Utilidades Colbox</option><option>Otro ingreso</option></select>
         </div>
+        <select id="qi-cuenta" class="sel-full">
+          <option>Debito Yurby</option>
+          <option>Debito Juan</option>
+          <option>Efectivo</option>
+        </select>
         <div class="mrow"><div style="flex:1;"><div style="font-size:0.75rem;color:#999;margin-bottom:4px;font-weight:600;">Fecha</div>
         <input id="qi-fecha" type="date" style="width:100%;padding:14px;border-radius:12px;border:2px solid #EEE;font-size:0.95rem;font-family:'DM Sans',sans-serif;-webkit-appearance:none;"/></div></div>
         <button class="sbtn ing" onclick="guardarI()">Guardar ingreso</button>
@@ -576,6 +581,16 @@ function fmtFechaInput(fi){
   const h=new Date();return`${String(h.getDate()).padStart(2,'0')}/${String(h.getMonth()+1).padStart(2,'0')}/${h.getFullYear()}`;
 }
 
+async function actualizarCuenta(nombre, delta){
+  const existing=await sb('cuentas','GET',null,`?cuenta=eq.${encodeURIComponent(nombre)}`);
+  if(existing.length>0){
+    const nuevoSaldo=Math.max(0,Number(existing[0].saldo)+delta);
+    await sb('cuentas','PATCH',{saldo:nuevoSaldo,actualizado:fmtFechaInput('')},`?cuenta=eq.${encodeURIComponent(nombre)}`);
+  } else {
+    await sb('cuentas','POST',{cuenta:nombre,saldo:Math.max(0,delta),actualizado:fmtFechaInput('')});
+  }
+}
+
 async function guardarG(){
   const det=document.getElementById('q-det').value.trim();
   const monto=parseInt(document.getElementById('q-monto').value)||0;
@@ -590,6 +605,12 @@ async function guardarG(){
   document.getElementById('ok-g').innerHTML=`<div class="ok-msg">Guardando...</div>`;
   try{
     await sb('gastos','POST',{fecha,detalle:det,categoria:cat,monto,quien,tarjeta:tar,mes:mG,anno:aG});
+    // Mover dinero entre cuentas segun tarjeta usada
+    if(tar==='RUT Yurby (Contribucion)'){
+      // Descuenta de Debito Yurby y suma a RUT
+      await actualizarCuenta('Debito Yurby', -monto);
+      await actualizarCuenta('RUT Yurby (Contribucion)', monto);
+    }
     document.getElementById('q-det').value='';document.getElementById('q-monto').value='';
     document.getElementById('ok-g').innerHTML=`<div class="ok-msg">Guardado: $${fmt(monto)} — ${det}</div>`;
     setTimeout(()=>{document.getElementById('ok-g').innerHTML='';},3000);
@@ -612,20 +633,11 @@ async function guardarI(){
   document.getElementById('ok-i').innerHTML=`<div class="ok-msg">Guardando...</div>`;
   try{
     await sb('ingresos','POST',{fecha,detalle:det,tipo:document.getElementById('qi-tipo').value,monto,quien,mes:mesI,anno:anioI});
-    // Sumar a cuenta correspondiente si es mayo 2026 en adelante
-    if((mesI>4&&anioI===2026)||(anioI>2026)){
-      const cuentaMap={'Yurby':'Debito Yurby','Juan':'Debito Juan','Colbox':'Debito Yurby','Ambos':'Debito Yurby'};
-      const cuentaNom=cuentaMap[quien]||'Debito Yurby';
-      const existing=await sb('cuentas','GET',null,`?cuenta=eq.${encodeURIComponent(cuentaNom)}`);
-      if(existing.length>0){
-        const nuevoSaldo=Number(existing[0].saldo)+monto;
-        await sb('cuentas','PATCH',{saldo:nuevoSaldo,actualizado:fecha},`?cuenta=eq.${encodeURIComponent(cuentaNom)}`);
-      } else {
-        await sb('cuentas','POST',{cuenta:cuentaNom,saldo:monto,actualizado:fecha});
-      }
-    }
+    // Sumar a la cuenta seleccionada
+    const cuentaNom=document.getElementById('qi-cuenta').value;
+    await actualizarCuenta(cuentaNom, monto);
     document.getElementById('qi-det').value='';document.getElementById('qi-monto').value='';
-    document.getElementById('ok-i').innerHTML=`<div class="ok-msg">Guardado: +$${fmt(monto)} — ${det}${((mesI>4&&anioI===2026)||(anioI>2026))?' (sumado a cuenta)':''}</div>`;
+    document.getElementById('ok-i').innerHTML=`<div class="ok-msg">Guardado: +$${fmt(monto)} — ${det} (sumado a cuenta)</div>`;
     setTimeout(()=>{document.getElementById('ok-i').innerHTML='';},3000);
     cache=null;cargar();
   }catch(e){document.getElementById('ok-i').innerHTML=`<div class="alerta danger">Error: ${e.message}</div>`;}
