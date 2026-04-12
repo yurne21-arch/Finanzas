@@ -421,7 +421,6 @@ function rResumen(d){
   const sY=gs(cts,"Debito Yurby"),sJ=gs(cts,"Debito Juan"),sE=gs(cts,"Efectivo"),sR=gs(cts,"RUT Yurby (Contribucion)");
   const rut=d.gastos.filter(g=>g.tarjeta==="RUT Yurby (Contribucion)").reduce((a,g)=>a+g.monto,0);
   const totalCuentas=Math.max(0,(sY-dY))+Math.max(0,(sJ-dJ))+Math.max(0,(sE-ef));
-  const totalCuentas=Math.max(0,(sY-dY))+Math.max(0,(sJ-dJ))+Math.max(0,(sE-ef));
 
   // Comparacion mes anterior
   const diffG=tGant>0?Math.round((tG-tGant)/tGant*100):0;
