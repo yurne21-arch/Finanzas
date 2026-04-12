@@ -604,11 +604,28 @@ async function guardarI(){
   const fi=document.getElementById('qi-fecha').value;
   const fecha=fmtFechaInput(fi);
   const partes=fecha.split('/');
+  const quien=document.getElementById('qi-quien').value;
+  const mesI=parseInt(partes[1]),anioI=parseInt(partes[2]);
+  // Solo sumar a cuenta si es mes actual o futuro (no abril 2026 que ya tiene saldo inicial)
+  const esActual=(mesI===mes&&anioI===anio);
+  const esFuturo=(anioI>anio)||(anioI===anio&&mesI>mes);
   document.getElementById('ok-i').innerHTML=`<div class="ok-msg">Guardando...</div>`;
   try{
-    await sb('ingresos','POST',{fecha,detalle:det,tipo:document.getElementById('qi-tipo').value,monto,quien:document.getElementById('qi-quien').value,mes:parseInt(partes[1]),anno:parseInt(partes[2])});
+    await sb('ingresos','POST',{fecha,detalle:det,tipo:document.getElementById('qi-tipo').value,monto,quien,mes:mesI,anno:anioI});
+    // Sumar a cuenta correspondiente si es mayo 2026 en adelante
+    if((mesI>4&&anioI===2026)||(anioI>2026)){
+      const cuentaMap={'Yurby':'Debito Yurby','Juan':'Debito Juan','Colbox':'Debito Yurby','Ambos':'Debito Yurby'};
+      const cuentaNom=cuentaMap[quien]||'Debito Yurby';
+      const existing=await sb('cuentas','GET',null,`?cuenta=eq.${encodeURIComponent(cuentaNom)}`);
+      if(existing.length>0){
+        const nuevoSaldo=Number(existing[0].saldo)+monto;
+        await sb('cuentas','PATCH',{saldo:nuevoSaldo,actualizado:fecha},`?cuenta=eq.${encodeURIComponent(cuentaNom)}`);
+      } else {
+        await sb('cuentas','POST',{cuenta:cuentaNom,saldo:monto,actualizado:fecha});
+      }
+    }
     document.getElementById('qi-det').value='';document.getElementById('qi-monto').value='';
-    document.getElementById('ok-i').innerHTML=`<div class="ok-msg">Guardado: +$${fmt(monto)}</div>`;
+    document.getElementById('ok-i').innerHTML=`<div class="ok-msg">Guardado: +$${fmt(monto)} — ${det}${((mesI>4&&anioI===2026)||(anioI>2026))?' (sumado a cuenta)':''}</div>`;
     setTimeout(()=>{document.getElementById('ok-i').innerHTML='';},3000);
     cache=null;cargar();
   }catch(e){document.getElementById('ok-i').innerHTML=`<div class="alerta danger">Error: ${e.message}</div>`;}
