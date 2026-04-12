@@ -231,31 +231,25 @@ h1{font-size:1.6rem;font-weight:700;margin-bottom:2px;}
 </div>
 
 <script>
-const GAS_URL='https://script.google.com/macros/s/AKfycbzq5BWXkqjhBKjPjQ2gckyJ1qGucZxByMB9LsEOIxTi7NMTFUmzO0vcoQ1npdPl23fbA/exec';
-
-let _gasCallbacks={};
-let _gasCounter=0;
+const GAS_URL='https://script.google.com/macros/s/AKfycbwXtwV6QPRtiZn9cRzNKocyiqxs0QoFp3W3RWLjM1DOZbI3lUE-ukxRyY3XwsRwCYLsUA/exec';
 
 function gasCall(fn, params, onOk, onFail){
-  const cbName='_gasCb'+(++_gasCounter);
-  _gasCallbacks[cbName]={ok:onOk,fail:onFail};
-  window[cbName]=function(data){
-    const cb=_gasCallbacks[cbName];
-    delete _gasCallbacks[cbName];
-    delete window[cbName];
-    if(script.parentNode)script.parentNode.removeChild(script);
-    if(cb&&cb.ok)cb.ok(data);
+  const url=GAS_URL+'?fn='+fn+'&params='+encodeURIComponent(JSON.stringify(params));
+  fetch(url, {method:'GET', mode:'no-cors'})
+    .then(()=>{
+      // no-cors no devuelve datos, usar polling o alternativa
+    });
+  // Usar iframe trick para JSONP compatible con GAS
+  const id='gc'+Date.now();
+  window[id]=function(data){delete window[id];if(onOk)onOk(data);};
+  const s=document.createElement('script');
+  s.src=GAS_URL+'?fn='+fn+'&params='+encodeURIComponent(JSON.stringify(params))+'&callback='+id;
+  s.onerror=()=>{
+    delete window[id];
+    if(onFail)onFail({message:'Error de conexion'});
+    else{const el=document.getElementById('resumen-content');if(el)el.innerHTML='<div class="alerta danger">Error de conexion. Verifica tu internet.</div>';}
   };
-  const script=document.createElement('script');
-  script.onerror=function(){
-    const cb=_gasCallbacks[cbName];
-    delete _gasCallbacks[cbName];
-    delete window[cbName];
-    if(cb&&cb.fail)cb.fail(new Error('Error de red'));
-    else document.getElementById('resumen-content').innerHTML='<div class="alerta danger">Error conectando al servidor. Intenta de nuevo.</div>';
-  };
-  script.src=GAS_URL+'?fn='+fn+'&params='+encodeURIComponent(JSON.stringify(params))+'&callback='+cbName;
-  document.head.appendChild(script);
+  document.head.appendChild(s);
 }
 
 const GAS={
