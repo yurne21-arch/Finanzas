@@ -232,14 +232,13 @@ h1{font-size:1.6rem;font-weight:700;margin-bottom:2px;}
 
 <script>
 const GAS_URL='https://script.google.com/macros/s/AKfycbzq5BWXkqjhBKjPjQ2gckyJ1qGucZxByMB9LsEOIxTi7NMTFUmzO0vcoQ1npdPl23fbA/exec';
-const PROXY='https://api.allorigins.win/get?url=';
-
 function gasCall(fn, params, onOk, onFail){
-  const url=PROXY+encodeURIComponent(GAS_URL+'?fn='+fn+'&params='+encodeURIComponent(JSON.stringify(params)));
-  fetch(url)
-    .then(r=>r.json())
-    .then(r=>{const d=JSON.parse(r.contents);if(onOk)onOk(d);})
-    .catch(e=>{if(onFail)onFail(e);else{const el=document.getElementById('resumen-content');if(el)el.innerHTML='<div class="alerta danger">Error de conexion. Verifica internet.</div>';}});
+  const url=GAS_URL+'?fn='+fn+'&params='+encodeURIComponent(JSON.stringify(params))+'&callback=_cb'+fn;
+  window['_cb'+fn]=function(d){delete window['_cb'+fn];if(s.parentNode)s.parentNode.removeChild(s);if(onOk)onOk(d);};
+  const s=document.createElement('script');
+  s.onerror=function(){delete window['_cb'+fn];if(s.parentNode)s.parentNode.removeChild(s);if(onFail)onFail({message:'Error de conexion'});else{const el=document.getElementById('resumen-content');if(el)el.innerHTML='<div class="alerta danger">Error de conexion.</div>';}};
+  s.src=url;
+  document.head.appendChild(s);
 }
 
 const google={script:{run:{
