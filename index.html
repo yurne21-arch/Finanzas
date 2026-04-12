@@ -127,6 +127,13 @@ h1{font-size:1.6rem;font-weight:700;margin-bottom:2px;}
           <option>Credito Juan (Santander)</option>
           <option>Efectivo</option>
         </select>
+        <div class="mrow" style="margin-bottom:10px;">
+          <div style="flex:1;">
+            <div style="font-size:0.75rem;color:#999;margin-bottom:4px;font-weight:600;">Fecha del gasto</div>
+            <input id="q-fecha" type="date" style="width:100%;padding:14px;border-radius:12px;border:2px solid #EEE;font-size:0.95rem;font-family:'DM Sans',sans-serif;color:#1A1A1A;background:white;-webkit-appearance:none;"/>
+          </div>
+        </div>
+        <div id="ciclo-aviso" style="display:none;background:#FEF9E7;border-radius:10px;padding:10px 14px;margin-bottom:10px;font-size:0.8rem;color:#7D6608;"></div>
         <div id="cuotas-box" style="display:none;background:#F5EEF8;border-radius:12px;padding:14px;margin-bottom:10px;">
           <div style="font-size:0.8rem;font-weight:700;color:#8E44AD;margin-bottom:10px;">Pago en cuotas</div>
           <select id="q-cuotas" style="width:100%;padding:12px;border-radius:10px;border:2px solid #DDD;font-size:0.9rem;font-family:'DM Sans',sans-serif;margin-bottom:8px;-webkit-appearance:none;" onchange="calcPreview()">
@@ -151,6 +158,12 @@ h1{font-size:1.6rem;font-weight:700;margin-bottom:2px;}
         <div class="mrow">
           <select id="qi-quien"><option>Yurby</option><option>Juan</option><option>Colbox</option><option>Ambos</option></select>
           <select id="qi-tipo"><option>Sueldo</option><option>Bono</option><option>Utilidades Colbox</option><option>Arriendo</option><option>Otro ingreso</option></select>
+        </div>
+        <div class="mrow" style="margin-bottom:10px;">
+          <div style="flex:1;">
+            <div style="font-size:0.75rem;color:#999;margin-bottom:4px;font-weight:600;">Fecha del ingreso</div>
+            <input id="qi-fecha" type="date" style="width:100%;padding:14px;border-radius:12px;border:2px solid #EEE;font-size:0.95rem;font-family:'DM Sans',sans-serif;color:#1A1A1A;background:white;-webkit-appearance:none;"/>
+          </div>
         </div>
         <button class="sbtn ing" onclick="guardarI()">Guardar ingreso</button>
       </div>
@@ -311,7 +324,7 @@ function show(id,btn){
   if(['resumen','analisis','tarjetas','cuentas'].includes(id))cargar();
   if(id==='metas')rMetas();
   if(id==='deudas')rDeudas();
-  // Actualizar selector de tarjetas en registro
+  if(id==='registro')iniciarFechas();
   actualizarSelectTarjetas();
 }
 function switchTab(t){
@@ -938,7 +951,50 @@ function calcPreview(){
   if(nc>5)prev+=`· ...`;
   document.getElementById('cuotas-preview').innerHTML=prev;
 }
-document.addEventListener('input',e=>{if(e.target.id==='q-monto'&&document.getElementById('cuotas-box').style.display!=='none')calcPreview();});
+function iniciarFechas(){
+  const hoy=new Date();
+  const yyyy=hoy.getFullYear();
+  const mm=String(hoy.getMonth()+1).padStart(2,'0');
+  const dd=String(hoy.getDate()).padStart(2,'0');
+  const fechaHoy=`${yyyy}-${mm}-${dd}`;
+  const fG=document.getElementById('q-fecha');
+  const fI=document.getElementById('qi-fecha');
+  if(fG&&!fG.value)fG.value=fechaHoy;
+  if(fI&&!fI.value)fI.value=fechaHoy;
+}
+
+function detectarCiclo(){
+  const tar=document.getElementById('q-tar').value;
+  const fechaInput=document.getElementById('q-fecha').value;
+  const aviso=document.getElementById('ciclo-aviso');
+  if(!aviso)return;
+  if(!tar.includes('Credito')||!fechaInput){aviso.style.display='none';return;}
+  const tars=getTarjetas();
+  const t=tars.find(x=>x.nombre===tar);
+  if(!t){aviso.style.display='none';return;}
+  const partes=fechaInput.split('-');
+  const diaGasto=parseInt(partes[2]);
+  const mesGasto=parseInt(partes[1]);
+  const anioGasto=parseInt(partes[0]);
+  // Si el dia del gasto es DESPUES del cierre, cae en el ciclo siguiente
+  if(diaGasto>t.cierre){
+    let mesPago=mesGasto+1,anioPago=anioGasto;
+    if(mesPago>12){mesPago=1;anioPago++;}
+    let mesCobro=mesPago+1,anioCobro=anioPago;
+    if(mesCobro>12){mesCobro=1;anioCobro++;}
+    aviso.style.display='block';
+    aviso.innerHTML=`Este gasto es despues del cierre (dia ${t.cierre}). Cae en el ciclo de <strong>${MESES[mesPago-1]} ${anioPago}</strong> — lo pagar&aacute;s antes del dia 10 de <strong>${MESES[mesCobro-1]} ${anioCobro}</strong>.`;
+  } else {
+    let mesCobro=mesGasto+1,anioCobro=anioGasto;
+    if(mesCobro>12){mesCobro=1;anioCobro++;}
+    aviso.style.display='block';
+    aviso.innerHTML=`Este gasto cae en el ciclo de <strong>${MESES[mesGasto-1]} ${anioGasto}</strong> — lo pagar&aacute;s antes del dia 10 de <strong>${MESES[mesCobro-1]} ${anioCobro}</strong>.`;
+  }
+}
+
+document.addEventListener('change',e=>{
+  if(e.target.id==='q-fecha'||e.target.id==='q-tar')detectarCiclo();
+});
 
 function guardarG(){
   const det=document.getElementById('q-det').value.trim();
@@ -949,13 +1005,25 @@ function guardarG(){
   const tar=document.getElementById('q-tar').value;
   const esC=tar.toLowerCase().includes('credito');
   const nc=esC?parseInt(document.getElementById('q-cuotas').value)||1:1;
+  // Fecha seleccionada o hoy
+  const fechaInput=document.getElementById('q-fecha').value;
+  let fechaFmt;
+  if(fechaInput){
+    const p=fechaInput.split('-');
+    fechaFmt=`${p[2]}/${p[1]}/${p[0]}`;
+  } else {
+    const h=new Date();
+    fechaFmt=`${String(h.getDate()).padStart(2,'0')}/${String(h.getMonth()+1).padStart(2,'0')}/${h.getFullYear()}`;
+  }
   if(esC&&nc>1){
     const cuota=Math.round(monto/nc);
     const tars=getTarjetas();
     const tc=tars.find(t=>t.nombre===tar);
     const cierre=tc?tc.cierre:24;
-    const diaH=new Date().getDate();
-    let mI=diaH<=cierre?mes:mes+1,aI=anio;
+    const fechaD=fechaInput?new Date(fechaInput):new Date();
+    const diaH=fechaD.getDate();
+    let mI=diaH<=cierre?fechaD.getMonth()+1:fechaD.getMonth()+2;
+    let aI=fechaD.getFullYear();
     if(mI>12){mI-=12;aI++;}
     document.getElementById('ok-g').innerHTML=`<div class="ok-msg">Guardando ${nc} cuotas...</div>`;
     let done=0;
@@ -965,7 +1033,8 @@ function guardarG(){
       GAS.withSuccessHandler(()=>{
         done++;
         if(done===nc){
-          document.getElementById('q-det').value='';document.getElementById('q-monto').value='';
+          document.getElementById('q-det').value='';
+          document.getElementById('q-monto').value='';
           document.getElementById('ok-g').innerHTML=`<div class="ok-msg">${nc} cuotas de $${fmt(cuota)}/mes guardadas.</div>`;
           setTimeout(()=>{document.getElementById('ok-g').innerHTML='';},4000);
           cache=null;
@@ -975,31 +1044,44 @@ function guardarG(){
   } else {
     document.getElementById('ok-g').innerHTML=`<div class="ok-msg">Guardando...</div>`;
     GAS.withSuccessHandler(()=>{
-      document.getElementById('q-det').value='';document.getElementById('q-monto').value='';
-      document.getElementById('ok-g').innerHTML=`<div class="ok-msg">Guardado: $${fmt(monto)} — ${det}</div>`;
+      document.getElementById('q-det').value='';
+      document.getElementById('q-monto').value='';
+      document.getElementById('ok-g').innerHTML=`<div class="ok-msg">Guardado: $${fmt(monto)} — ${det} (${fechaFmt})</div>`;
       setTimeout(()=>{document.getElementById('ok-g').innerHTML='';},3000);
       cache=null;
-    }).withFailureHandler(e=>{document.getElementById('ok-g').innerHTML=`<div class="alerta danger">Error: ${e.message}</div>`;})
-    .guardarGasto(det,cat,monto,quien,tar,new Date().toLocaleDateString('es-CL'));
+    }).withFailureHandler(e=>{
+      document.getElementById('ok-g').innerHTML=`<div class="alerta danger">Error: ${e.message}</div>`;
+    }).guardarGasto(det,cat,monto,quien,tar,fechaFmt);
   }
 }
 function guardarI(){
   const det=document.getElementById('qi-det').value.trim();
   const monto=parseInt(document.getElementById('qi-monto').value)||0;
   if(!det||!monto){alert('Escribe el detalle y el monto');return;}
+  const fechaInput=document.getElementById('qi-fecha').value;
+  let fechaFmt;
+  if(fechaInput){
+    const p=fechaInput.split('-');
+    fechaFmt=`${p[2]}/${p[1]}/${p[0]}`;
+  } else {
+    const h=new Date();
+    fechaFmt=`${String(h.getDate()).padStart(2,'0')}/${String(h.getMonth()+1).padStart(2,'0')}/${h.getFullYear()}`;
+  }
   document.getElementById('ok-i').innerHTML=`<div class="ok-msg">Guardando...</div>`;
   GAS.withSuccessHandler(()=>{
-    document.getElementById('qi-det').value='';document.getElementById('qi-monto').value='';
-    document.getElementById('ok-i').innerHTML=`<div class="ok-msg">Guardado: +$${fmt(monto)} — ${det}</div>`;
+    document.getElementById('qi-det').value='';
+    document.getElementById('qi-monto').value='';
+    document.getElementById('ok-i').innerHTML=`<div class="ok-msg">Guardado: +$${fmt(monto)} — ${det} (${fechaFmt})</div>`;
     setTimeout(()=>{document.getElementById('ok-i').innerHTML='';},3000);
     cache=null;
-  }).withFailureHandler(e=>{document.getElementById('ok-i').innerHTML=`<div class="alerta danger">Error: ${e.message}</div>`;})
-  .guardarIngreso(det,document.getElementById('qi-tipo').value,monto,document.getElementById('qi-quien').value,new Date().toLocaleDateString('es-CL'));
+  }).withFailureHandler(e=>{
+    document.getElementById('ok-i').innerHTML=`<div class="alerta danger">Error: ${e.message}</div>`;
+  }).guardarIngreso(det,document.getElementById('qi-tipo').value,monto,document.getElementById('qi-quien').value,fechaFmt);
 }
 function delG(idx){if(!confirm('Borrar este gasto?'))return;GAS.withSuccessHandler(()=>{cache=null;cargar();}).borrarGasto(idx,mes,anio);}
 function delI(idx){if(!confirm('Borrar este ingreso?'))return;GAS.withSuccessHandler(()=>{cache=null;cargar();}).borrarIngreso(idx,mes,anio);}
 
-labels();cargar();actualizarSelectTarjetas();
+labels();cargar();actualizarSelectTarjetas();iniciarFechas();
 </script>
 </body>
 </html>
