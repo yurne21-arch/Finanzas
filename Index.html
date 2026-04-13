@@ -605,11 +605,12 @@ async function guardarG(){
   document.getElementById('ok-g').innerHTML=`<div class="ok-msg">Guardando...</div>`;
   try{
     await sb('gastos','POST',{fecha,detalle:det,categoria:cat,monto,quien,tarjeta:tar,mes:mG,anno:aG});
-    // Mover dinero entre cuentas segun tarjeta usada
-    if(tar==='RUT Yurby (Contribucion)'){
-      // Descuenta de Debito Yurby y suma a RUT
-      await actualizarCuenta('Debito Yurby', -monto);
+    // Mover dinero entre cuentas segun logica
+    if(cat==='Contribucion' && (tar==='Debito Yurby'||tar==='Debito Juan')){
+      // Abono mensual: sale de debito y entra al RUT
       await actualizarCuenta('RUT Yurby (Contribucion)', monto);
+    } else if(tar==='RUT Yurby (Contribucion)'){
+      // Pago trimestral real con RUT - no hace nada extra, ya se descuenta del RUT en pantalla
     }
     document.getElementById('q-det').value='';document.getElementById('q-monto').value='';
     document.getElementById('ok-g').innerHTML=`<div class="ok-msg">Guardado: $${fmt(monto)} — ${det}</div>`;
