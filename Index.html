@@ -385,13 +385,7 @@ function rResumen(d){
     </div>
   </div>`;
 
-  // Barra presupuesto
-  h+=`<div style="background:white;border-radius:14px;padding:14px 16px;margin-bottom:10px;border:1px solid #EEE;">
-    <div style="display:flex;justify-content:space-between;font-size:0.75rem;margin-bottom:6px;"><span style="color:#999;">Presupuesto mensual</span><span style="font-weight:700;">$${fmt(tG)} / $${fmt(TOTAL_PRES)}</span></div>
-    <div style="width:100%;height:10px;background:#F0F0F0;border-radius:5px;overflow:hidden;">
-      <div style="height:100%;width:${Math.min(100,pctPres)}%;background:${pctPres>100?'#C0392B':pctPres>80?'#E67E22':'#27AE60'};border-radius:5px;transition:width 0.3s;"></div>
-    </div>
-  </div>`;
+
 
   // Tarjetas y deudas del mes
   h+=`<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px;">
@@ -452,19 +446,20 @@ function rResumen(d){
     </div>`;
   }
 
-  // Ultimos gastos
+  // Todos los gastos del mes
   if(d.gastos.length){
-    h+=`<div class="stitle">Ultimos movimientos</div>`;
-    d.gastos.slice().reverse().slice(0,6).forEach(g=>{
-      h+=`<div class="grow"><div><div style="font-weight:700;">${g.det}</div><div class="gcat">${g.cat} · ${g.tarjeta} · ${g.fecha}</div></div><div style="display:flex;gap:8px;align-items:center;"><span style="font-weight:700;">$${fmt(g.monto)}</span><span onclick="delG(${g.id})" style="cursor:pointer;color:#CCC;font-size:1.2rem;padding:6px;">x</span></div></div>`;
+    h+=`<div class="stitle">Gastos del mes (${d.gastos.length})</div>`;
+    d.gastos.slice().reverse().forEach(g=>{
+      const esPagoDeuda=g.cat==='Pago Deuda';
+      h+=`<div class="grow"><div style="flex:1;"><div style="font-weight:700;">${g.det}</div><div class="gcat">${g.cat} · ${g.tarjeta} · ${g.fecha}</div></div><div style="display:flex;gap:8px;align-items:center;flex-shrink:0;"><span style="font-weight:700;color:${esPagoDeuda?'#8E44AD':'#1A1A1A'};">$${fmt(g.monto)}</span><span onclick="delG(${g.id})" style="cursor:pointer;color:#DDD;font-size:1.3rem;padding:4px 8px;line-height:1;">×</span></div></div>`;
     });
   }
 
-  // Ingresos del mes
+  // Todos los ingresos del mes
   if(d.ingresos.length){
-    h+=`<div class="stitle">Ingresos registrados</div>`;
-    d.ingresos.forEach(g=>{
-      h+=`<div class="grow"><div><div style="font-weight:700;">${g.det}</div><div class="gcat">${g.tipo} · ${g.quien} · ${g.fecha}</div></div><div style="display:flex;gap:8px;align-items:center;"><span style="font-weight:700;color:#27AE60;">+$${fmt(g.monto)}</span><span onclick="delI(${g.id})" style="cursor:pointer;color:#CCC;font-size:1.2rem;padding:6px;">x</span></div></div>`;
+    h+=`<div class="stitle">Ingresos del mes (${d.ingresos.length})</div>`;
+    d.ingresos.slice().reverse().forEach(g=>{
+      h+=`<div class="grow"><div style="flex:1;"><div style="font-weight:700;">${g.det}</div><div class="gcat">${g.tipo} · ${g.quien} · ${g.fecha}</div></div><div style="display:flex;gap:8px;align-items:center;flex-shrink:0;"><span style="font-weight:700;color:#27AE60;">+$${fmt(g.monto)}</span><span onclick="delI(${g.id})" style="cursor:pointer;color:#DDD;font-size:1.3rem;padding:4px 8px;line-height:1;">×</span></div></div>`;
     });
   }
 
