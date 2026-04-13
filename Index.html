@@ -70,6 +70,7 @@ h1{font-size:1.6rem;font-weight:700;margin-bottom:2px;}
     <button onclick="show('registro',this)">+ Registrar</button>
     <button onclick="show('tarjetas',this)">Tarjetas</button>
     <button onclick="show('cuentas',this)">Cuentas</button>
+    <button onclick="show('presupuesto',this)">Presupuesto</button>
     <button onclick="show('metas',this)">Metas</button>
     <button onclick="show('deudas',this)">Deudas</button>
   </div>
@@ -183,6 +184,15 @@ h1{font-size:1.6rem;font-weight:700;margin-bottom:2px;}
     <div id="cuentas-content"><div class="loading">Cargando...</div></div>
   </div>
 
+  <div class="screen" id="s-presupuesto">
+    <div class="month-nav">
+      <button onclick="cambiarMes(-1)">&#8249;</button>
+      <span class="month-label" id="presupuesto-mes">Abril 2026</span>
+      <button onclick="cambiarMes(1)">&#8250;</button>
+    </div>
+    <div id="presupuesto-content"><div class="loading">Cargando...</div></div>
+  </div>
+
   <div class="screen" id="s-metas">
     <div id="metas-content"><div class="loading">Cargando...</div></div>
   </div>
@@ -270,7 +280,8 @@ function show(id,btn){
   document.querySelectorAll('.nav button').forEach(b=>b.classList.remove('active'));
   document.getElementById('s-'+id).classList.add('active');
   btn.classList.add('active');
-  if(['resumen','tarjetas','cuentas'].includes(id))cargar();
+  if(['resumen','tarjetas','cuentas','presupuesto'].includes(id))cargar();
+  if(id==='presupuesto'){rPresupuesto();return;}
   if(id==='metas')rMetas();
   if(id==='deudas')rDeudas();
 }
@@ -289,7 +300,7 @@ function cambiarMes(d){
 
 function labels(){
   const l=MESES[mes-1]+' '+anio;
-  ['mes-label','resumen-mes','tarjetas-mes'].forEach(id=>{const e=document.getElementById(id);if(e)e.textContent=l;});
+  ['mes-label','resumen-mes','tarjetas-mes','presupuesto-mes'].forEach(id=>{const e=document.getElementById(id);if(e)e.textContent=l;});
 }
 
 async function cargar(){
@@ -318,7 +329,7 @@ async function cargar(){
 }
 
 function gs(cts,n){const c=cts.find(x=>x.cuenta===n);return c?Number(c.saldo):0;}
-function rAll(d){rResumen(d);rTarjetas(d);rCuentas(d);}
+function rAll(d){rResumen(d);rTarjetas(d);rCuentas(d);if(document.getElementById('s-presupuesto').classList.contains('active'))rPresupuesto(d);}
 
 function rResumen(d){
   const gastosPres=d.gastos.filter(g=>g.cat!=='Pago Deuda');
@@ -333,79 +344,171 @@ function rResumen(d){
   const sY=gs(cts,'Debito Yurby'),sJ=gs(cts,'Debito Juan'),sE=gs(cts,'Efectivo');
   const totalCuentas=Math.max(0,sY-dY)+Math.max(0,sJ-dJ)+Math.max(0,sE-ef);
   const diffG=tGant>0?Math.round((tG-tGant)/tGant*100):0;
-  const pctPres=Math.round(tG/TOTAL_PRES*100);
+  const diffI=tIant>0?Math.round((tI-tIant)/tIant*100):0;
+  const pctPres=TOTAL_PRES>0?Math.round(tG/TOTAL_PRES*100):0;
+
+  // Tarjetas - total a pagar
+  const tars=getTarjetas();
+  const totalTarjetas=tars.reduce((a,t)=>{
+    const gastMes=d.gastos.filter(g=>g.tarjeta===t.nombre).reduce((s,g)=>s+g.monto,0);
+    return a+(t.cuotaMes>0?t.cuotaMes+gastMes:t.saldoDeuda+gastMes);
+  },0);
+  const tarjetasPagadas=tars.every(t=>d.pagosTarjeta.find(p=>p.tarjeta===t.nombre));
+
+  // Deudas - total cuotas del mes
+  const{fijas,extra}=getDeudas();
+  const totalDeudas=fijas.reduce((a,d)=>a+d.cuota,0)+extra.reduce((a,d)=>a+d.cuota,0);
+
   let h='';
-  h+=`<div style="background:white;border-radius:16px;border:2px solid #1A1A1A;padding:20px;margin-bottom:14px;">
-    <div style="font-size:0.7rem;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:14px;">${MESES[mes-1]} ${anio}</div>
-    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px;">
-      <div><div class="gcat">Ingresos</div><div style="font-size:1.4rem;font-weight:700;color:#27AE60;">$${fmt(tI)}</div>${tIant>0?`<div style="font-size:0.75rem;color:#999;">${tI>=tIant?'▲':'▼'} vs mes ant.</div>`:''}</div>
-      <div><div class="gcat">Gastos</div><div style="font-size:1.4rem;font-weight:700;color:${tG>TOTAL_PRES?'#C0392B':'#E67E22'};">$${fmt(tG)}</div>${tGant>0?`<div style="font-size:0.75rem;color:${diffG<=0?'#27AE60':'#C0392B'};">${diffG>=0?'▲':'▼'} ${Math.abs(diffG)}% vs ant.</div>`:''}</div>
-      <div><div class="gcat">Saldo cuentas</div><div style="font-size:1.2rem;font-weight:700;">$${fmt(totalCuentas)}</div></div>
-      <div><div class="gcat">Presupuesto</div><div style="font-size:1.2rem;font-weight:700;color:${tG>TOTAL_PRES?'#C0392B':'#27AE60'};">${pctPres}% usado</div><div style="font-size:0.7rem;color:#999;">${tG<=TOTAL_PRES?'Quedan $'+fmt(TOTAL_PRES-tG):'Excedido $'+fmt(tG-TOTAL_PRES)}</div></div>
+
+  // ── DASHBOARD PRINCIPAL ──────────────────────────
+  h+=`<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px;">
+    <div style="background:white;border-radius:16px;border:1px solid #EEE;padding:16px;">
+      <div class="gcat">Ingresos del mes</div>
+      <div style="font-size:1.3rem;font-weight:700;color:#27AE60;">$${fmt(tI)}</div>
+      ${tIant>0?`<div style="font-size:0.7rem;color:${tI>=tIant?'#27AE60':'#C0392B'};">${tI>=tIant?'▲':'▼'} ${Math.abs(Math.round((tI-tIant)/tIant*100))}% vs ant.</div>`:'<div style="font-size:0.7rem;color:#999;">Este mes</div>'}
     </div>
-    <div style="width:100%;height:10px;background:#F0F0F0;border-radius:5px;overflow:hidden;margin-bottom:4px;">
-      <div style="height:100%;width:${Math.min(100,pctPres)}%;background:${pctPres>100?'#C0392B':pctPres>80?'#E67E22':'#27AE60'};border-radius:5px;"></div>
+    <div style="background:white;border-radius:16px;border:1px solid #EEE;padding:16px;">
+      <div class="gcat">Gastos del mes</div>
+      <div style="font-size:1.3rem;font-weight:700;color:${tG>TOTAL_PRES?'#C0392B':'#E67E22'};">$${fmt(tG)}</div>
+      ${tGant>0?`<div style="font-size:0.7rem;color:${diffG<=0?'#27AE60':'#C0392B'};">${diffG>=0?'▲':'▼'} ${Math.abs(diffG)}% vs ant.</div>`:'<div style="font-size:0.7rem;color:#999;">Este mes</div>'}
     </div>
-    <div style="display:flex;justify-content:space-between;font-size:0.7rem;color:#999;"><span>$0</span><span>$${fmt(TOTAL_PRES)}</span></div>
+    <div style="background:white;border-radius:16px;border:1px solid #EEE;padding:16px;">
+      <div class="gcat">Saldo en cuentas</div>
+      <div style="font-size:1.3rem;font-weight:700;">$${fmt(totalCuentas)}</div>
+      <div style="font-size:0.7rem;color:#999;">Debito + Efectivo</div>
+    </div>
+    <div style="background:white;border-radius:16px;border:1px solid ${tG>TOTAL_PRES?'#C0392B':'#27AE60'};padding:16px;">
+      <div class="gcat">Presupuesto usado</div>
+      <div style="font-size:1.3rem;font-weight:700;color:${tG>TOTAL_PRES?'#C0392B':'#27AE60'};">${pctPres}%</div>
+      <div style="font-size:0.7rem;color:#999;">${tG<=TOTAL_PRES?'Quedan $'+fmt(TOTAL_PRES-tG):'Excedido $'+fmt(tG-TOTAL_PRES)}</div>
+    </div>
   </div>`;
-  if(tG>TOTAL_PRES)h+=`<div class="alerta danger">Excediste el presupuesto en <strong>$${fmt(tG-TOTAL_PRES)}</strong>.</div>`;
-  else if(pctPres>=80)h+=`<div class="alerta warn">Llevas el ${pctPres}%. Quedan <strong>$${fmt(TOTAL_PRES-tG)}</strong>.</div>`;
-  else if(tI===0)h+=`<div class="alerta info">Sin registros este mes. Toca + Registrar para empezar.</div>`;
-  else h+=`<div class="alerta good">Llevas el ${pctPres}%. Quedan <strong>$${fmt(TOTAL_PRES-tG)}</strong>.</div>`;
-  h+=`<div class="stitle">Gastos por categoria</div>`;
-  const pc={},pcA={};
-  gastosPres.forEach(g=>{pc[g.cat]=(pc[g.cat]||0)+g.monto;});
-  d.gastosAnt.filter(g=>g.cat!=='Pago Deuda').forEach(g=>{pcA[g.cat]=(pcA[g.cat]||0)+g.monto;});
-  for(const[c,p]of Object.entries(PRES)){
-    const r=pc[c]||0,ant=pcA[c]||0,pct=Math.min(100,Math.round(r/p*100));
-    const col=pct>100?'#C0392B':pct>80?'#E67E22':'#27AE60';
-    const diff=ant>0?r-ant:null;
-    h+=`<div class="grow" style="flex-direction:column;align-items:stretch;gap:6px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <span style="font-weight:700;">${c}</span>
-        <div style="display:flex;gap:8px;align-items:center;">
-          ${diff!==null?`<span style="font-size:0.75rem;color:${diff>0?'#C0392B':'#27AE60'};">${diff>0?'▲':'▼'}$${fmt(Math.abs(diff))}</span>`:''}
-          <span style="font-weight:700;color:${col};">${pct}%</span>
+
+  // Barra presupuesto
+  h+=`<div style="background:white;border-radius:14px;padding:14px 16px;margin-bottom:10px;border:1px solid #EEE;">
+    <div style="display:flex;justify-content:space-between;font-size:0.75rem;margin-bottom:6px;"><span style="color:#999;">Presupuesto mensual</span><span style="font-weight:700;">$${fmt(tG)} / $${fmt(TOTAL_PRES)}</span></div>
+    <div style="width:100%;height:10px;background:#F0F0F0;border-radius:5px;overflow:hidden;">
+      <div style="height:100%;width:${Math.min(100,pctPres)}%;background:${pctPres>100?'#C0392B':pctPres>80?'#E67E22':'#27AE60'};border-radius:5px;transition:width 0.3s;"></div>
+    </div>
+  </div>`;
+
+  // Tarjetas y deudas del mes
+  h+=`<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px;">
+    <div style="background:${tarjetasPagadas?'#EAFAF1':'#FEF9E7'};border-radius:16px;border:1px solid ${tarjetasPagadas?'#A9DFBF':'#F9E79F'};padding:16px;">
+      <div class="gcat">Tarjetas a pagar</div>
+      <div style="font-size:1.3rem;font-weight:700;color:${tarjetasPagadas?'#27AE60':'#E67E22'};">$${fmt(totalTarjetas)}</div>
+      <div style="font-size:0.7rem;font-weight:700;color:${tarjetasPagadas?'#27AE60':'#E67E22'};">${tarjetasPagadas?'✓ Pagadas':'Pendiente'}</div>
+    </div>
+    <div style="background:#F5F3EF;border-radius:16px;border:1px solid #EEE;padding:16px;">
+      <div class="gcat">Cuotas deudas/mes</div>
+      <div style="font-size:1.3rem;font-weight:700;color:#C0392B;">$${fmt(totalDeudas)}</div>
+      <div style="font-size:0.7rem;color:#999;">Fijas mensuales</div>
+    </div>
+  </div>`;
+
+  // Alerta principal
+  if(tG>TOTAL_PRES) h+=`<div class="alerta danger">Excediste el presupuesto en <strong>$${fmt(tG-TOTAL_PRES)}</strong> este mes.</div>`;
+  else if(pctPres>=80) h+=`<div class="alerta warn">Llevas el ${pctPres}% del presupuesto. Quedan <strong>$${fmt(TOTAL_PRES-tG)}</strong>.</div>`;
+  else if(tI===0) h+=`<div class="alerta info">Sin registros este mes. Toca + Registrar para empezar.</div>`;
+  else h+=`<div class="alerta good">Bien encaminados. Llevas el ${pctPres}% del presupuesto. Quedan <strong>$${fmt(TOTAL_PRES-tG)}</strong>.</div>`;
+
+  // ── ANALISIS DEL MES ──────────────────────────────
+  h+=`<div class="stitle">Analisis del mes</div>`;
+
+  // Balance del mes
+  const balance=tI-tG-totalDeudas;
+  h+=`<div style="background:white;border-radius:16px;border:2px solid ${balance>=0?'#27AE60':'#C0392B'};padding:16px;margin-bottom:10px;">
+    <div class="gcat" style="margin-bottom:8px;">Balance del mes</div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center;font-size:0.85rem;">
+      <div><div class="gcat">Ingresos</div><div style="font-weight:700;color:#27AE60;">+$${fmt(tI)}</div></div>
+      <div><div class="gcat">Gastos</div><div style="font-weight:700;color:#E67E22;">-$${fmt(tG)}</div></div>
+      <div><div class="gcat">Deudas</div><div style="font-weight:700;color:#C0392B;">-$${fmt(totalDeudas)}</div></div>
+    </div>
+    <div style="border-top:1px solid #F0F0F0;margin-top:10px;padding-top:10px;display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-weight:700;">Resultado del mes</span>
+      <span style="font-size:1.2rem;font-weight:700;color:${balance>=0?'#27AE60':'#C0392B'};">${balance>=0?'+':''}$${fmt(balance)}</span>
+    </div>
+  </div>`;
+
+  // Comparacion vs mes anterior
+  if(tGant>0||tIant>0){
+    h+=`<div style="background:white;border-radius:16px;border:1px solid #EEE;padding:16px;margin-bottom:10px;">
+      <div style="font-weight:700;font-size:0.85rem;margin-bottom:10px;">Comparacion vs mes anterior</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:0.85rem;">
+        <span>Ingresos</span>
+        <div style="text-align:right;">
+          <span style="font-weight:700;">$${fmt(tI)}</span>
+          ${tIant>0?`<span style="font-size:0.75rem;color:${tI>=tIant?'#27AE60':'#C0392B'};margin-left:6px;">${tI>=tIant?'▲':'▼'}$${fmt(Math.abs(tI-tIant))}</span>`:''}
         </div>
       </div>
-      <div style="font-size:0.75rem;color:#999;">$${fmt(r)} de $${fmt(p)}${r>p?` · <span style="color:#C0392B;font-weight:700;">+$${fmt(r-p)}</span>`:''}</div>
-      <div style="width:100%;height:6px;background:#F0F0F0;border-radius:3px;overflow:hidden;"><div style="height:100%;width:${pct}%;background:${col};border-radius:3px;"></div></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.85rem;">
+        <span>Gastos</span>
+        <div style="text-align:right;">
+          <span style="font-weight:700;">$${fmt(tG)}</span>
+          ${tGant>0?`<span style="font-size:0.75rem;color:${tG<=tGant?'#27AE60':'#C0392B'};margin-left:6px;">${tG>tGant?'▲':'▼'}$${fmt(Math.abs(tG-tGant))}</span>`:''}
+        </div>
+      </div>
     </div>`;
   }
-  const tars=getTarjetas();
-  h+=`<div class="stitle">Tarjetas de credito</div>`;
-  tars.forEach(t=>{
-    const gastMes=d.gastos.filter(g=>g.tarjeta===t.nombre).reduce((a,g)=>a+g.monto,0);
-    const totalUsado=t.saldoDeuda+gastMes;
-    const disponible=Math.max(0,t.cupo-totalUsado);
-    const pct=Math.min(100,Math.round(totalUsado/t.cupo*100));
-    const pg=d.pagosTarjeta.find(p=>p.tarjeta===t.nombre);
-    const montoPagar=t.cuotaMes>0?t.cuotaMes+gastMes:t.saldoDeuda+gastMes;
-    h+=`<div class="card" style="margin-bottom:10px;">
-      <div style="display:flex;justify-content:space-between;margin-bottom:10px;"><span style="font-weight:700;">${t.nombre}</span><span style="font-size:0.75rem;color:#999;">${t.titular}</span></div>
-      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:10px;text-align:center;">
-        <div style="background:#FADBD8;border-radius:10px;padding:10px;"><div class="gcat">Utilizado</div><div style="font-weight:700;color:#C0392B;">$${fmt(totalUsado)}</div></div>
-        <div style="background:#EAFAF1;border-radius:10px;padding:10px;"><div class="gcat">Disponible</div><div style="font-weight:700;color:#27AE60;">$${fmt(disponible)}</div></div>
-        <div style="background:#F5F3EF;border-radius:10px;padding:10px;"><div class="gcat">Cupo total</div><div style="font-weight:700;">$${fmt(t.cupo)}</div></div>
-        <div style="background:#FEF9E7;border-radius:10px;padding:10px;"><div class="gcat">Pagar este mes</div><div style="font-weight:700;color:#E67E22;">$${fmt(montoPagar)}</div></div>
-      </div>
-      <div class="track"><div class="fill ${pct>80?'red':'purple'}" style="width:${pct}%"></div></div>
-      ${pg?`<div style="color:#27AE60;font-weight:700;font-size:0.85rem;margin-top:8px;">Pagado</div>`:`<div class="gcat" style="margin-top:8px;">Cierra dia ${t.cierre} · Pagar hasta dia ${t.pago}</div>`}
-    </div>`;
-  });
+
+  // Ultimos gastos
   if(d.gastos.length){
-    h+=`<div class="stitle">Ultimos gastos</div>`;
-    d.gastos.slice().reverse().slice(0,8).forEach(g=>{
+    h+=`<div class="stitle">Ultimos movimientos</div>`;
+    d.gastos.slice().reverse().slice(0,6).forEach(g=>{
       h+=`<div class="grow"><div><div style="font-weight:700;">${g.det}</div><div class="gcat">${g.cat} · ${g.tarjeta} · ${g.fecha}</div></div><div style="display:flex;gap:8px;align-items:center;"><span style="font-weight:700;">$${fmt(g.monto)}</span><span onclick="delG(${g.id})" style="cursor:pointer;color:#CCC;font-size:1.2rem;padding:6px;">x</span></div></div>`;
     });
   }
+
+  // Ingresos del mes
   if(d.ingresos.length){
-    h+=`<div class="stitle">Ingresos del mes</div>`;
+    h+=`<div class="stitle">Ingresos registrados</div>`;
     d.ingresos.forEach(g=>{
       h+=`<div class="grow"><div><div style="font-weight:700;">${g.det}</div><div class="gcat">${g.tipo} · ${g.quien} · ${g.fecha}</div></div><div style="display:flex;gap:8px;align-items:center;"><span style="font-weight:700;color:#27AE60;">+$${fmt(g.monto)}</span><span onclick="delI(${g.id})" style="cursor:pointer;color:#CCC;font-size:1.2rem;padding:6px;">x</span></div></div>`;
     });
   }
+
   document.getElementById('resumen-content').innerHTML=h;
+}
+
+function rPresupuesto(d){
+  if(!d)d=cache;
+  if(!d){document.getElementById('presupuesto-content').innerHTML='<div class="loading">Cargando...</div>';return;}
+  const gastosPres=d.gastos.filter(g=>g.cat!=='Pago Deuda');
+  const tG=gastosPres.reduce((a,g)=>a+g.monto,0);
+  const pc={},pcA={};
+  gastosPres.forEach(g=>{pc[g.cat]=(pc[g.cat]||0)+g.monto;});
+  d.gastosAnt.filter(g=>g.cat!=='Pago Deuda').forEach(g=>{pcA[g.cat]=(pcA[g.cat]||0)+g.monto;});
+  let h=`<div style="background:white;border-radius:16px;border:2px solid #1A1A1A;padding:16px;margin-bottom:14px;">
+    <div class="gcat" style="margin-bottom:4px;">Total gastado</div>
+    <div style="font-size:1.6rem;font-weight:700;">$${fmt(tG)}</div>
+    <div style="font-size:0.8rem;color:#999;">de $${fmt(TOTAL_PRES)} presupuestado · ${Math.round(tG/TOTAL_PRES*100)}% usado</div>
+  </div>`;
+  h+=`<div class="stitle">Detalle por categoria</div>`;
+  for(const[c,p]of Object.entries(PRES)){
+    const r=pc[c]||0,ant=pcA[c]||0;
+    const pct=Math.min(100,Math.round(r/p*100));
+    const col=pct>100?'#C0392B':pct>80?'#E67E22':'#27AE60';
+    const diff=ant>0?r-ant:null;
+    h+=`<div style="background:white;border-radius:14px;border:1px solid #EEE;padding:14px;margin-bottom:8px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <span style="font-weight:700;">${c}</span>
+        <div style="text-align:right;">
+          <span style="font-weight:700;color:${col};">${pct}%</span>
+          ${diff!==null?`<span style="font-size:0.7rem;color:${diff>0?'#C0392B':'#27AE60'};display:block;">${diff>0?'▲':'▼'}$${fmt(Math.abs(diff))} vs ant.</span>`:''}
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:0.75rem;color:#999;margin-bottom:6px;">
+        <span>$${fmt(r)} gastado</span>
+        <span>$${fmt(p)} presupuesto</span>
+      </div>
+      <div style="width:100%;height:8px;background:#F0F0F0;border-radius:4px;overflow:hidden;">
+        <div style="height:100%;width:${pct}%;background:${col};border-radius:4px;"></div>
+      </div>
+      ${r>p?`<div style="font-size:0.75rem;color:#C0392B;margin-top:4px;font-weight:700;">Excedido $${fmt(r-p)}</div>`:r>p*0.8?`<div style="font-size:0.75rem;color:#E67E22;margin-top:4px;">Casi en limite — quedan $${fmt(p-r)}</div>`:''}
+    </div>`;
+  }
+  document.getElementById('presupuesto-content').innerHTML=h;
 }
 
 function rTarjetas(d){
@@ -561,9 +664,23 @@ async function rDeudas(){
   // Cargar pagos de deuda registrados
   let pagosDeuda=[];
   try{pagosDeuda=await sb('gastos','GET',null,);}catch(e){}
-  let h=`<div style="background:white;border-radius:16px;border:2px solid #1A1A1A;padding:18px;margin-bottom:16px;display:grid;grid-template-columns:repeat(2,1fr);gap:12px;">
-    <div><div class="gcat">Cuotas/mes</div><div style="font-size:1.3rem;font-weight:700;color:#C0392B;">$${fmt(total)}</div></div>
-    <div><div class="gcat">Deudas activas</div><div style="font-size:1.3rem;font-weight:700;">${fijas.length+extra.length}</div></div>
+  const totalPagadoGeneral=pagosDeuda.reduce((a,p)=>a+Number(p.monto),0);
+  const totalRestante=fijas.reduce((a,d)=>a+d.total,0)+extra.reduce((a,d)=>a+d.total,0)-totalPagadoGeneral;
+  let h=`<div style="background:white;border-radius:16px;border:2px solid #1A1A1A;padding:18px;margin-bottom:16px;">
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:12px;">
+      <div><div class="gcat">Cuotas/mes</div><div style="font-size:1.2rem;font-weight:700;color:#C0392B;">$${fmt(total)}</div></div>
+      <div><div class="gcat">Deudas activas</div><div style="font-size:1.2rem;font-weight:700;">${fijas.length+extra.length}</div></div>
+    </div>
+    <div style="border-top:1px solid #F0F0F0;padding-top:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <span class="gcat">Total deuda restante</span>
+        <span style="font-size:1.1rem;font-weight:700;color:#C0392B;">$${fmt(Math.max(0,totalRestante))}</span>
+      </div>
+      ${totalPagadoGeneral>0?`<div style="display:flex;justify-content:space-between;align-items:center;">
+        <span class="gcat">Total abonado</span>
+        <span style="font-size:0.95rem;font-weight:700;color:#27AE60;">-$${fmt(totalPagadoGeneral)}</span>
+      </div>`:''}
+    </div>
   </div>`;
   h+=`<div class="stitle">Deudas bancarias</div>`;
   fijas.forEach(d=>{
