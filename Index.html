@@ -560,7 +560,7 @@ async function rDeudas(){
   const total=fijas.reduce((a,d)=>a+d.cuota,0)+extra.reduce((a,d)=>a+d.cuota,0);
   // Cargar pagos de deuda registrados
   let pagosDeuda=[];
-  try{pagosDeuda=await sb('gastos','GET',null,'?categoria=eq.Pago%20Deuda&order=fecha.desc');}catch(e){}
+  try{pagosDeuda=await sb('gastos','GET',null,);}catch(e){}
   let h=`<div style="background:white;border-radius:16px;border:2px solid #1A1A1A;padding:18px;margin-bottom:16px;display:grid;grid-template-columns:repeat(2,1fr);gap:12px;">
     <div><div class="gcat">Cuotas/mes</div><div style="font-size:1.3rem;font-weight:700;color:#C0392B;">$${fmt(total)}</div></div>
     <div><div class="gcat">Deudas activas</div><div style="font-size:1.3rem;font-weight:700;">${fijas.length+extra.length}</div></div>
@@ -744,16 +744,21 @@ async function delG(id){
 async function delI(id){
   if(!confirm('Borrar?'))return;
   try{
-    // Obtener ingreso antes de borrar para revertir cuenta
     const ing=await sb('ingresos','GET',null,`?id=eq.${id}`);
     if(ing.length>0){
       const ingreso=ing[0];
-      const cuentaNom=ingreso.cuenta||('Debito '+(ingreso.quien==='Juan'?'Juan':'Yurby'));
+      // Determinar cuenta: usar campo cuenta si existe, sino inferir de quien
+      let cuentaNom=ingreso.cuenta;
+      if(!cuentaNom){
+        if(ingreso.quien==='Juan') cuentaNom='Debito Juan';
+        else if(ingreso.quien==='Yurby') cuentaNom='Debito Yurby';
+        else cuentaNom='Debito Yurby';
+      }
       await actualizarCuenta(cuentaNom, -Number(ingreso.monto));
     }
     await sb('ingresos','DELETE',null,`?id=eq.${id}`);
     cache=null;cargar();
-  }catch(e){alert('Error al borrar');}
+  }catch(e){console.error(e);alert('Error al borrar: '+e.message);}
 }
 
 function toggleCuotas(){
