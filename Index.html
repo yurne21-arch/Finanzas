@@ -81,6 +81,7 @@ h1{font-size:1.6rem;font-weight:700;margin-bottom:2px;}
       <span class="month-label" id="resumen-mes">Abril 2026</span>
       <button onclick="cambiarMes(1)">&#8250;</button>
     </div>
+    <button onclick="exportarExcel()" style="width:100%;padding:14px;border-radius:14px;border:2px solid #27AE60;background:white;color:#27AE60;font-size:0.95rem;font-weight:700;font-family:'DM Sans',sans-serif;cursor:pointer;margin-bottom:14px;">⬇️ Descargar Excel del mes</button>
     <div id="resumen-content"><div class="loading">Cargando...</div></div>
   </div>
 
@@ -338,11 +339,9 @@ function rResumen(d){
   const tGant=d.gastosAnt.filter(g=>g.cat!=='Pago Deuda').reduce((a,g)=>a+g.monto,0);
   const tIant=d.ingresosAnt.reduce((a,g)=>a+g.monto,0);
   const cts=d.cuentas;
-  const dY=d.gastos.filter(g=>g.tarjeta==='Debito Yurby'&&g.cat!=='Pago Deuda').reduce((a,g)=>a+g.monto,0);
-  const dJ=d.gastos.filter(g=>g.tarjeta==='Debito Juan'&&g.cat!=='Pago Deuda').reduce((a,g)=>a+g.monto,0);
-  const ef=d.gastos.filter(g=>g.tarjeta==='Efectivo').reduce((a,g)=>a+g.monto,0);
+  // El saldo en cuentas ya refleja la realidad actual (actualizado manualmente)
   const sY=gs(cts,'Debito Yurby'),sJ=gs(cts,'Debito Juan'),sE=gs(cts,'Efectivo');
-  const totalCuentas=Math.max(0,sY-dY)+Math.max(0,sJ-dJ)+Math.max(0,sE-ef);
+  const totalCuentas=sY+sJ+sE;
   const diffG=tGant>0?Math.round((tG-tGant)/tGant*100):0;
   const diffI=tIant>0?Math.round((tI-tIant)/tIant*100):0;
   const pctPres=TOTAL_PRES>0?Math.round(tG/TOTAL_PRES*100):0;
@@ -558,15 +557,12 @@ function rTarjetas(d){
 
 function rCuentas(d){
   const cts=d.cuentas;
-  // Solo descontar gastos del mes actual que usan cuentas de debito
-  const dY=d.gastos.filter(g=>g.tarjeta==='Debito Yurby'&&g.cat!=='Pago Deuda').reduce((a,g)=>a+g.monto,0);
-  const dJ=d.gastos.filter(g=>g.tarjeta==='Debito Juan'&&g.cat!=='Pago Deuda').reduce((a,g)=>a+g.monto,0);
-  const ef=d.gastos.filter(g=>g.tarjeta==='Efectivo').reduce((a,g)=>a+g.monto,0);
-  const rut=d.gastos.filter(g=>g.tarjeta==='RUT Yurby (Contribucion)').reduce((a,g)=>a+g.monto,0);
+  // Saldo real actualizado manualmente - no descontar gastos
   const sY=gs(cts,'Debito Yurby'),sJ=gs(cts,'Debito Juan'),sE=gs(cts,'Efectivo'),sR=gs(cts,'RUT Yurby (Contribucion)');
+  const rut=0;
   const mI=Math.max(0,(anio-2026)*12+(mes-4));
   const mP=Math.max(0,3-(mI%3)-1);
-  const totalDisp=Math.max(0,sY-dY)+Math.max(0,sJ-dJ)+Math.max(0,sE-ef);
+  const totalDisp=sY+sJ+sE;
   const FONDO_EM=7214593;
   const pctF=Math.min(100,Math.round(totalDisp/FONDO_EM*100));
   const pctI=Math.min(100,Math.round(totalDisp/(FONDO_EM*3)*100));
@@ -959,6 +955,48 @@ function iniciarFechas(){
   const dd=String(hoy.getDate()).padStart(2,'0');
   const fechaHoy=`${yyyy}-${mm}-${dd}`;
   ['q-fecha','qi-fecha','qd-fecha'].forEach(id=>{const e=document.getElementById(id);if(e&&!e.value)e.value=fechaHoy;});
+}
+
+
+async function exportarExcel(){
+  if(!cache){alert('Espera que carguen los datos');return;}
+  const d=cache;
+  const MESES_N=MESES;
+  const mesNom=MESES_N[mes-1]+' '+anio;
+
+  // Crear CSV con todos los datos
+  let csv='GASTOS DEL MES: '+mesNom+'\n';
+  csv+='Fecha,Detalle,Categoria,Monto,Quien,Tarjeta,Compartido\n';
+  d.gastos.forEach(g=>{
+    const compartido=g.quien==='Ambos'?'SI':'NO';
+    csv+=`${g.fecha},"${g.det}","${g.cat}",${g.monto},"${g.quien}","${g.tarjeta}","${compartido}"\n`;
+  });
+  csv+='\nINGRESOS DEL MES: '+mesNom+'\n';
+  csv+='Fecha,Detalle,Tipo,Monto,Quien,Cuenta\n';
+  d.ingresos.forEach(g=>{
+    csv+=`${g.fecha},"${g.det}","${g.tipo}",${g.monto},"${g.quien}","${g.cuenta||''}"\n`;
+  });
+  csv+='\nSALDOS CUENTAS\n';
+  csv+='Cuenta,Saldo\n';
+  d.cuentas.forEach(c=>{
+    csv+=`"${c.cuenta}",${c.saldo}\n`;
+  });
+  csv+='\nRESUMEN\n';
+  const tG=d.gastos.filter(g=>g.cat!=='Pago Deuda').reduce((a,g)=>a+g.monto,0);
+  const tI=d.ingresos.reduce((a,g)=>a+g.monto,0);
+  csv+=`Total gastos,${tG}\n`;
+  csv+=`Total ingresos,${tI}\n`;
+  csv+=`Presupuesto,${TOTAL_PRES}\n`;
+  csv+=`% usado,${Math.round(tG/TOTAL_PRES*100)}%\n`;
+
+  // Descargar
+  const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download='Finanzas_'+MESES_N[mes-1]+'_'+anio+'.csv';
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 labels();cargar();iniciarFechas();
