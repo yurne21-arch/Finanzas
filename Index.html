@@ -211,6 +211,7 @@ h1{font-size:1.6rem;font-weight:700;margin-bottom:2px;}
   </div>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
 const SB_URL='https://nzkyurltwgekxbemuncm.supabase.co';
 const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56a3l1cmx0d2dla3hiZW11bmNtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYwMjM4NzYsImV4cCI6MjA5MTU5OTg3Nn0.HHGaUAWuC7uPBpvUGE_kpQRYrV3vNMWkVobUPXEct5A';
@@ -1050,73 +1051,92 @@ async function importarCSV(event){
 }
 
 async function exportarExcel(){
-  // Cargar TODOS los meses disponibles
-  let todosGastos=[], todosIngresos=[];
+  let todosGastos=[],todosIngresos=[],todasCuentas=[];
   try{
     todosGastos=await sb('gastos','GET',null,'?order=anno.asc,mes.asc,id.asc');
     todosIngresos=await sb('ingresos','GET',null,'?order=anno.asc,mes.asc,id.asc');
-  }catch(e){alert('Error cargando datos');return;}
+    todasCuentas=await sb('cuentas','GET',null,'?order=id.asc');
+  }catch(e){alert('Error cargando datos: '+e.message);return;}
 
-  let csv='﻿';
-  csv+='FINANZAS FAMILIA - HISTORIAL COMPLETO\n';
-  csv+='Generado el: '+new Date().toLocaleDateString('es-CL')+'\n\n';
+  const wb=XLSX.utils.book_new();
 
-  // GASTOS - todos los meses
-  csv+='=== GASTOS ===\n';
-  csv+='Mes,Fecha,Detalle,Categoria,Monto,Quien,Tarjeta,Compartido,Estado\n';
+  // Estilos
+  function fmtMes(m,a){return MESES[m-1]+' '+a;}
+  function fmtEstado(e){return e==='cerrado'?'CUADRADO':e==='pagado'?'PAGADO':'PENDIENTE';}
+
+  // HOJA GASTOS
+  const gastosData=[
+    ['Mes','Fecha','Detalle','Categoria','Monto','Quien','Tarjeta','Compartido','Estado']
+  ];
   todosGastos.forEach(g=>{
-    const mesNom=MESES[g.mes-1]+' '+g.anno;
-    const compartido=(g.quien==='Ambos')?'SI':'NO';
-    const estado=g.estado==='cerrado'?'CUADRADO':g.estado==='pagado'?'PAGADO':'PENDIENTE';
-    csv+=`"${mesNom}","${g.fecha}","${g.detalle}","${g.categoria}",${g.monto},"${g.quien}","${g.tarjeta}","${compartido}","${estado}"\n`;
+    gastosData.push([
+      fmtMes(g.mes,g.anno),
+      g.fecha,
+      g.detalle,
+      g.categoria,
+      Number(g.monto),
+      g.quien,
+      g.tarjeta,
+      g.quien==='Ambos'?'SI':'NO',
+      fmtEstado(g.estado)
+    ]);
   });
+  const wsG=XLSX.utils.aoa_to_sheet(gastosData);
+  wsG['!cols']=[{wch:16},{wch:14},{wch:30},{wch:20},{wch:14},{wch:12},{wch:28},{wch:14},{wch:14}];
+  XLSX.utils.book_append_sheet(wb,wsG,'Gastos');
 
-  // INGRESOS - todos los meses
-  csv+='\n=== INGRESOS ===\n';
-  csv+='Mes,Fecha,Detalle,Tipo,Monto,Quien,Cuenta\n';
+  // HOJA INGRESOS
+  const ingData=[
+    ['Mes','Fecha','Detalle','Tipo','Monto','Quien','Cuenta']
+  ];
   todosIngresos.forEach(g=>{
-    const mesNom=MESES[g.mes-1]+' '+g.anno;
-    csv+=`"${mesNom}","${g.fecha}","${g.detalle}","${g.tipo}",${g.monto},"${g.quien}","${g.cuenta||''}"\n`;
+    ingData.push([
+      fmtMes(g.mes,g.anno),
+      g.fecha,
+      g.detalle,
+      g.tipo,
+      Number(g.monto),
+      g.quien,
+      g.cuenta||''
+    ]);
   });
+  const wsI=XLSX.utils.aoa_to_sheet(ingData);
+  wsI['!cols']=[{wch:16},{wch:14},{wch:30},{wch:20},{wch:14},{wch:12},{wch:22}];
+  XLSX.utils.book_append_sheet(wb,wsI,'Ingresos');
 
-  // SALDOS ACTUALES
-  csv+='\n=== SALDOS CUENTAS ===\n';
-  csv+='Cuenta,Saldo,Actualizado\n';
-  if(cache&&cache.cuentas){
-    cache.cuentas.forEach(c=>{
-      csv+=`"${c.cuenta}",${c.saldo},"${c.actualizado||''}"\n`;
-    });
-  }
-
-  // RESUMEN POR MES
-  csv+='\n=== RESUMEN POR MES ===\n';
-  csv+='Mes,Total Gastos,Total Ingresos,% Presupuesto\n';
-  const meses={}; 
+  // HOJA RESUMEN POR MES
+  const mesesMap={};
   todosGastos.forEach(g=>{
     const k=g.anno+'-'+String(g.mes).padStart(2,'0');
-    if(!meses[k])meses[k]={mes:g.mes,anno:g.anno,gastos:0,ingresos:0};
-    if(g.categoria!=='Pago Deuda')meses[k].gastos+=Number(g.monto);
+    if(!mesesMap[k])mesesMap[k]={mes:g.mes,anno:g.anno,gastos:0,ingresos:0};
+    if(g.categoria!=='Pago Deuda')mesesMap[k].gastos+=Number(g.monto);
   });
   todosIngresos.forEach(g=>{
     const k=g.anno+'-'+String(g.mes).padStart(2,'0');
-    if(!meses[k])meses[k]={mes:g.mes,anno:g.anno,gastos:0,ingresos:0};
-    meses[k].ingresos+=Number(g.monto);
+    if(!mesesMap[k])mesesMap[k]={mes:g.mes,anno:g.anno,gastos:0,ingresos:0};
+    mesesMap[k].ingresos+=Number(g.monto);
   });
-  Object.keys(meses).sort().forEach(k=>{
-    const m=meses[k];
-    const mesNom=MESES[m.mes-1]+' '+m.anno;
-    const pct=Math.round(m.gastos/TOTAL_PRES*100);
-    csv+=`"${mesNom}",${m.gastos},${m.ingresos},${pct}%\n`;
+  const resData=[['Mes','Total Gastos','Total Ingresos','% Presupuesto','Balance']];
+  Object.keys(mesesMap).sort().forEach(k=>{
+    const m=mesesMap[k];
+    const pct=Math.round(m.gastos/TOTAL_PRES*100)+'%';
+    resData.push([fmtMes(m.mes,m.anno),m.gastos,m.ingresos,pct,m.ingresos-m.gastos]);
   });
+  const wsR=XLSX.utils.aoa_to_sheet(resData);
+  wsR['!cols']=[{wch:18},{wch:18},{wch:18},{wch:16},{wch:18}];
+  XLSX.utils.book_append_sheet(wb,wsR,'Resumen por Mes');
 
-  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');
-  a.href=url;
-  a.download='Finanzas_Historial_'+new Date().toLocaleDateString('es-CL').replace(/\//g,'-')+'.csv';
-  a.click();
-  URL.revokeObjectURL(url);
-  alert('Archivo descargado con historial completo de todos los meses.');
+  // HOJA SALDOS
+  const saldosData=[['Cuenta','Saldo','Actualizado']];
+  todasCuentas.forEach(c=>saldosData.push([c.cuenta,Number(c.saldo),c.actualizado||'']));
+  const wsS=XLSX.utils.aoa_to_sheet(saldosData);
+  wsS['!cols']=[{wch:30},{wch:18},{wch:16}];
+  XLSX.utils.book_append_sheet(wb,wsS,'Saldos Cuentas');
+
+  // Descargar
+  const fecha=new Date().toLocaleDateString('es-CL').replace(/\//g,'-');
+  XLSX.writeFile(wb,'Finanzas_Historial_'+fecha+'.xlsx');
+  alert('✅ Excel descargado con '+todosGastos.length+' gastos y '+todosIngresos.length+' ingresos de todos los meses.');
 }
 
 labels();cargar();iniciarFechas();
