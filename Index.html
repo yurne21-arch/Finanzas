@@ -584,7 +584,7 @@ function rCuentas(d){
   <div class="alerta info">Toca "Actualizar" para ingresar el saldo real de tu banco.</div>
   <div class="cta-grid">
     <div class="cta"><div class="cbanco">Debito Yurby</div><div class="ctipo">Total Yurby</div><div class="csaldo ${sY<300000?'':''}" style="color:${sY<300000?'#C0392B':'#27AE60'};">$${fmt(sY)}</div><div class="gcat">Banco: $${fmt(sY)}</div><span class="cedit" onclick="editCta('Debito Yurby',${sY})">Actualizar</span></div>
-    <div class="cta"><div class="cbanco">Debito Juan</div><div class="ctipo">Total Juan</div><div class="csaldo" style="color:${sJ-dJ<300000?'#C0392B':'#27AE60'};">$${fmt(sJ)}</div><div class="gcat">Banco: $${fmt(sJ)}</div><span class="cedit" onclick="editCta('Debito Juan',${sJ})">Actualizar</span></div>
+    <div class="cta"><div class="cbanco">Debito Juan</div><div class="ctipo">Total Juan</div><div class="csaldo" style="color:${sJ<300000?'#C0392B':'#27AE60'};">$${fmt(sJ)}</div><div class="gcat">Banco: $${fmt(sJ)}</div><span class="cedit" onclick="editCta('Debito Juan',${sJ})">Actualizar</span></div>
     <div class="cta"><div class="cbanco">Efectivo</div><div class="ctipo">Cash</div><div class="csaldo">$${fmt(sE)}</div><div class="gcat">Banco: $${fmt(sE)}</div><span class="cedit" onclick="editCta('Efectivo',${sE})">Actualizar</span></div>
     <div class="cta" style="border-color:#27AE60;"><div class="cbanco">RUT Yurby</div><div class="ctipo">Contribucion</div><div class="csaldo" style="color:#27AE60;">$${fmt(sR)}</div><div class="gcat">Prox: ${mP} ${mP===1?'mes':'meses'}</div><span class="cedit" style="color:#27AE60;" onclick="editCta('RUT Yurby (Contribucion)',${sR})">Actualizar</span></div>
   </div>`;
