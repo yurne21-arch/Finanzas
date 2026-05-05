@@ -81,7 +81,14 @@ h1{font-size:1.6rem;font-weight:700;margin-bottom:2px;}
       <span class="month-label" id="resumen-mes">Abril 2026</span>
       <button onclick="cambiarMes(1)">&#8250;</button>
     </div>
-    <button onclick="exportarExcel()" style="width:100%;padding:14px;border-radius:14px;border:2px solid #27AE60;background:white;color:#27AE60;font-size:0.95rem;font-weight:700;font-family:'DM Sans',sans-serif;cursor:pointer;margin-bottom:14px;">⬇️ Descargar Excel del mes</button>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+      <button onclick="exportarExcel()" style="padding:14px;border-radius:14px;border:2px solid #27AE60;background:white;color:#27AE60;font-size:0.85rem;font-weight:700;font-family:'DM Sans',sans-serif;cursor:pointer;">⬇️ Descargar historial</button>
+      <label style="padding:14px;border-radius:14px;border:2px solid #3498DB;background:white;color:#3498DB;font-size:0.85rem;font-weight:700;font-family:'DM Sans',sans-serif;cursor:pointer;text-align:center;">
+        ⬆️ Cargar archivo
+        <input type="file" accept=".csv" onchange="importarCSV(event)" style="display:none;">
+      </label>
+    </div>
+    <div id="import-status"></div>
     <div id="resumen-content"><div class="loading">Cargando...</div></div>
   </div>
 
@@ -958,45 +965,158 @@ function iniciarFechas(){
 }
 
 
+
+async function importarCSV(event){
+  const file=event.target.files[0];
+  if(!file){return;}
+  const text=await file.text();
+  const lines=text.split('\n');
+  const statusEl=document.getElementById('import-status');
+  statusEl.innerHTML='<div class="alerta info">Procesando archivo...</div>';
+
+  let gastosNuevos=[],ingresosNuevos=[],seccion='';
+  let gastosCount=0,ingresosCount=0;
+
+  for(const line of lines){
+    const l=line.trim();
+    if(!l)continue;
+    if(l.includes('=== GASTOS ==='))    {seccion='gastos';continue;}
+    if(l.includes('=== INGRESOS ==='))  {seccion='ingresos';continue;}
+    if(l.includes('=== SALDOS'))        {seccion='saldos';continue;}
+    if(l.includes('=== RESUMEN'))       {seccion='';continue;}
+    if(l.startsWith('Mes,'))            continue; // headers
+    if(l.startsWith('Cuenta,'))         continue;
+    if(l.startsWith('FINANZAS') || l.startsWith('Generado')) continue;
+
+    const cols=l.match(/(".*?"|[^,]+)(?=,|$)/g)||[];
+    const clean=cols.map(c=>c.replace(/^"|"$/g,'').trim());
+
+    if(seccion==='gastos' && clean.length>=9){
+      const [mesNom,fecha,detalle,categoria,monto,quien,tarjeta,compartido,estado]=clean;
+      if(!fecha||!detalle||!monto)continue;
+      const parts=fecha.split('/');
+      if(parts.length!==3)continue;
+      const m=parseInt(parts[1]),a=parseInt(parts[2]);
+      if(isNaN(m)||isNaN(a))continue;
+      const estadoDb=estado==='CUADRADO'?'cerrado':estado==='PAGADO'?'pagado':'registrado';
+      gastosNuevos.push({fecha,detalle,categoria,monto:parseInt(monto)||0,quien,tarjeta,mes:m,anno:a,estado:estadoDb});
+    }
+    if(seccion==='ingresos' && clean.length>=7){
+      const [mesNom,fecha,detalle,tipo,monto,quien,cuenta]=clean;
+      if(!fecha||!detalle||!monto)continue;
+      const parts=fecha.split('/');
+      if(parts.length!==3)continue;
+      const m=parseInt(parts[1]),a=parseInt(parts[2]);
+      if(isNaN(m)||isNaN(a))continue;
+      ingresosNuevos.push({fecha,detalle,tipo,monto:parseInt(monto)||0,quien,cuenta,mes:m,anno:a});
+    }
+  }
+
+  if(gastosNuevos.length===0&&ingresosNuevos.length===0){
+    statusEl.innerHTML='<div class="alerta danger">No se encontraron datos para importar.</div>';
+    return;
+  }
+
+  // Confirmar antes de importar
+  if(!confirm(`Se van a importar:\n${gastosNuevos.length} gastos\n${ingresosNuevos.length} ingresos\n\n¿Continuar? Esto reemplazará los datos existentes.`)){
+    statusEl.innerHTML='';
+    return;
+  }
+
+  statusEl.innerHTML='<div class="alerta info">Importando... no cierres la app.</div>';
+
+  try{
+    // Borrar datos existentes
+    await sb('gastos','DELETE',null,'?id=gte.0');
+    await sb('ingresos','DELETE',null,'?id=gte.0');
+
+    // Insertar en lotes de 20
+    const chunk=(arr,n)=>Array.from({length:Math.ceil(arr.length/n)},(_,i)=>arr.slice(i*n,i*n+n));
+    for(const lote of chunk(gastosNuevos,20)){
+      await sb('gastos','POST',lote);
+      gastosCount+=lote.length;
+    }
+    for(const lote of chunk(ingresosNuevos,20)){
+      await sb('ingresos','POST',lote);
+      ingresosCount+=lote.length;
+    }
+
+    cache=null;
+    statusEl.innerHTML=`<div class="alerta good">✓ Importado: ${gastosCount} gastos y ${ingresosCount} ingresos. Actualizando...</div>`;
+    setTimeout(()=>{statusEl.innerHTML='';cargar();},2000);
+  }catch(e){
+    statusEl.innerHTML=`<div class="alerta danger">Error: ${e.message}</div>`;
+  }
+}
+
 async function exportarExcel(){
-  if(!cache){alert('Espera que carguen los datos');return;}
-  const d=cache;
-  const MESES_N=MESES;
-  const mesNom=MESES_N[mes-1]+' '+anio;
+  // Cargar TODOS los meses disponibles
+  let todosGastos=[], todosIngresos=[];
+  try{
+    todosGastos=await sb('gastos','GET',null,'?order=anno.asc,mes.asc,id.asc');
+    todosIngresos=await sb('ingresos','GET',null,'?order=anno.asc,mes.asc,id.asc');
+  }catch(e){alert('Error cargando datos');return;}
 
-  // Crear CSV con todos los datos
-  let csv='GASTOS DEL MES: '+mesNom+'\n';
-  csv+='Fecha,Detalle,Categoria,Monto,Quien,Tarjeta,Compartido\n';
-  d.gastos.forEach(g=>{
-    const compartido=g.quien==='Ambos'?'SI':'NO';
-    csv+=`${g.fecha},"${g.det}","${g.cat}",${g.monto},"${g.quien}","${g.tarjeta}","${compartido}"\n`;
-  });
-  csv+='\nINGRESOS DEL MES: '+mesNom+'\n';
-  csv+='Fecha,Detalle,Tipo,Monto,Quien,Cuenta\n';
-  d.ingresos.forEach(g=>{
-    csv+=`${g.fecha},"${g.det}","${g.tipo}",${g.monto},"${g.quien}","${g.cuenta||''}"\n`;
-  });
-  csv+='\nSALDOS CUENTAS\n';
-  csv+='Cuenta,Saldo\n';
-  d.cuentas.forEach(c=>{
-    csv+=`"${c.cuenta}",${c.saldo}\n`;
-  });
-  csv+='\nRESUMEN\n';
-  const tG=d.gastos.filter(g=>g.cat!=='Pago Deuda').reduce((a,g)=>a+g.monto,0);
-  const tI=d.ingresos.reduce((a,g)=>a+g.monto,0);
-  csv+=`Total gastos,${tG}\n`;
-  csv+=`Total ingresos,${tI}\n`;
-  csv+=`Presupuesto,${TOTAL_PRES}\n`;
-  csv+=`% usado,${Math.round(tG/TOTAL_PRES*100)}%\n`;
+  let csv='﻿';
+  csv+='FINANZAS FAMILIA - HISTORIAL COMPLETO\n';
+  csv+='Generado el: '+new Date().toLocaleDateString('es-CL')+'\n\n';
 
-  // Descargar
-  const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
+  // GASTOS - todos los meses
+  csv+='=== GASTOS ===\n';
+  csv+='Mes,Fecha,Detalle,Categoria,Monto,Quien,Tarjeta,Compartido,Estado\n';
+  todosGastos.forEach(g=>{
+    const mesNom=MESES[g.mes-1]+' '+g.anno;
+    const compartido=(g.quien==='Ambos')?'SI':'NO';
+    const estado=g.estado==='cerrado'?'CUADRADO':g.estado==='pagado'?'PAGADO':'PENDIENTE';
+    csv+=`"${mesNom}","${g.fecha}","${g.detalle}","${g.categoria}",${g.monto},"${g.quien}","${g.tarjeta}","${compartido}","${estado}"\n`;
+  });
+
+  // INGRESOS - todos los meses
+  csv+='\n=== INGRESOS ===\n';
+  csv+='Mes,Fecha,Detalle,Tipo,Monto,Quien,Cuenta\n';
+  todosIngresos.forEach(g=>{
+    const mesNom=MESES[g.mes-1]+' '+g.anno;
+    csv+=`"${mesNom}","${g.fecha}","${g.detalle}","${g.tipo}",${g.monto},"${g.quien}","${g.cuenta||''}"\n`;
+  });
+
+  // SALDOS ACTUALES
+  csv+='\n=== SALDOS CUENTAS ===\n';
+  csv+='Cuenta,Saldo,Actualizado\n';
+  if(cache&&cache.cuentas){
+    cache.cuentas.forEach(c=>{
+      csv+=`"${c.cuenta}",${c.saldo},"${c.actualizado||''}"\n`;
+    });
+  }
+
+  // RESUMEN POR MES
+  csv+='\n=== RESUMEN POR MES ===\n';
+  csv+='Mes,Total Gastos,Total Ingresos,% Presupuesto\n';
+  const meses={}; 
+  todosGastos.forEach(g=>{
+    const k=g.anno+'-'+String(g.mes).padStart(2,'0');
+    if(!meses[k])meses[k]={mes:g.mes,anno:g.anno,gastos:0,ingresos:0};
+    if(g.categoria!=='Pago Deuda')meses[k].gastos+=Number(g.monto);
+  });
+  todosIngresos.forEach(g=>{
+    const k=g.anno+'-'+String(g.mes).padStart(2,'0');
+    if(!meses[k])meses[k]={mes:g.mes,anno:g.anno,gastos:0,ingresos:0};
+    meses[k].ingresos+=Number(g.monto);
+  });
+  Object.keys(meses).sort().forEach(k=>{
+    const m=meses[k];
+    const mesNom=MESES[m.mes-1]+' '+m.anno;
+    const pct=Math.round(m.gastos/TOTAL_PRES*100);
+    csv+=`"${mesNom}",${m.gastos},${m.ingresos},${pct}%\n`;
+  });
+
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
   a.href=url;
-  a.download='Finanzas_'+MESES_N[mes-1]+'_'+anio+'.csv';
+  a.download='Finanzas_Historial_'+new Date().toLocaleDateString('es-CL').replace(/\//g,'-')+'.csv';
   a.click();
   URL.revokeObjectURL(url);
+  alert('Archivo descargado con historial completo de todos los meses.');
 }
 
 labels();cargar();iniciarFechas();
