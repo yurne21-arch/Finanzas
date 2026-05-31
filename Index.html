@@ -184,6 +184,17 @@ h1{font-size:1.6rem;font-weight:700;margin-bottom:2px;}
           <input id="qd-fecha" type="date" style="flex:1;padding:14px;border-radius:12px;border:2px solid #EEE;font-size:0.95rem;font-family:'DM Sans',sans-serif;-webkit-appearance:none;"/>
         </div>
         <select id="qd-cuenta" class="sel-full"><option>Debito Yurby</option><option>Debito Juan</option><option>Efectivo</option></select>
+        <div class="mrow">
+          <select id="qd-pagopor" style="flex:1;">
+            <option value="Yurby">💳 Pagó Yurby</option>
+            <option value="Juan">💳 Pagó Juan</option>
+            <option value="Ambos">💳 Pagaron Ambos</option>
+          </select>
+          <select id="qd-compartido" style="flex:1;">
+            <option value="SI">👫 Gasto compartido</option>
+            <option value="NO">👤 Gasto personal</option>
+          </select>
+        </div>
         <button class="sbtn red" onclick="guardarPagoDeuda()">Registrar pago deuda</button>
       </div>
       <div id="ok-d"></div>
@@ -695,8 +706,8 @@ async function rCuadratura(){
   const gAmbos=gastos.filter(g=>g.pagopor==='Ambos');
 
   // Compartidos pagados por cada uno
-  const compYurby=gastos.filter(g=>g.compartido==='SI'&&(g.pagopor==='Yurby'||(!g.pagopor&&g.tarjeta&&g.tarjeta.includes('Yurby')))&&g.categoria!=='Pago Deuda');
-  const compJuan=gastos.filter(g=>g.compartido==='SI'&&(g.pagopor==='Juan'||(!g.pagopor&&g.tarjeta&&g.tarjeta.includes('Juan')))&&g.categoria!=='Pago Deuda');
+  const compYurby=gastos.filter(g=>g.compartido==='SI'&&(g.pagopor==='Yurby'||(!g.pagopor&&g.tarjeta&&g.tarjeta.includes('Yurby'))));
+  const compJuan=gastos.filter(g=>g.compartido==='SI'&&(g.pagopor==='Juan'||(!g.pagopor&&g.tarjeta&&g.tarjeta.includes('Juan'))));
   const soloYurby=gastos.filter(g=>g.compartido==='NO'&&(g.pagopor==='Yurby'||(!g.pagopor&&g.tarjeta&&g.tarjeta.includes('Yurby')))&&g.categoria!=='Pago Deuda');
   const soloJuan=gastos.filter(g=>g.compartido==='NO'&&(g.pagopor==='Juan'||(!g.pagopor&&g.tarjeta&&g.tarjeta.includes('Juan')))&&g.categoria!=='Pago Deuda');
 
@@ -990,7 +1001,9 @@ async function guardarPagoDeuda(){
   const partes=fecha.split('/');
   document.getElementById('ok-d').innerHTML=`<div class="ok-msg">Guardando...</div>`;
   try{
-    await sb('gastos','POST',{fecha,detalle:'Pago deuda: '+deuda,categoria:'Pago Deuda',monto,quien:'Ambos',tarjeta:document.getElementById('qd-cuenta').value,mes:parseInt(partes[1]),anno:parseInt(partes[2])});
+    const qdPagopor=document.getElementById('qd-pagopor').value;
+    const qdComp=document.getElementById('qd-compartido').value;
+    await sb('gastos','POST',{fecha,detalle:'Pago deuda: '+deuda,categoria:'Pago Deuda',monto,quien:qdPagopor,tarjeta:document.getElementById('qd-cuenta').value,pagopor:qdPagopor,compartido:qdComp,mes:parseInt(partes[1]),anno:parseInt(partes[2])});
     document.getElementById('qd-monto').value='';
     document.getElementById('ok-d').innerHTML=`<div class="ok-msg">Pago de $${fmt(monto)} registrado.</div>`;
     setTimeout(()=>{document.getElementById('ok-d').innerHTML='';},3000);
