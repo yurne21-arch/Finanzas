@@ -1,4 +1,4 @@
-  <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
@@ -826,25 +826,73 @@ async function cerrarCuadratura(){
   }catch(e){alert('Error: '+e.message);}
 }
 
-function exportarCuadratura(debeY,debeJ,mitad,compY,compJ,soloY,soloJ){
+async function exportarCuadratura(debeY,debeJ,mitad,compY,compJ,soloY,soloJ){
   const mesNom=MESES[mes-1]+' '+anio;
+  // Cargar detalle completo
+  let gastos=[];
+  try{gastos=await sb('gastos','GET',null,`?mes=eq.${mes}&anno=eq.${anio}&order=fecha.asc,id.asc`);}catch(e){alert('Error');return;}
+
+  const compJuan=gastos.filter(g=>g.compartido==='SI'&&(g.pagopor==='Juan'||(!g.pagopor&&g.tarjeta&&g.tarjeta.includes('Juan'))));
+  const compYurby=gastos.filter(g=>g.compartido==='SI'&&(g.pagopor==='Yurby'||(!g.pagopor&&g.tarjeta&&g.tarjeta.includes('Yurby'))));
+  const soloJuan=gastos.filter(g=>g.compartido==='NO'&&(g.pagopor==='Juan'||(!g.pagopor&&g.tarjeta&&g.tarjeta.includes('Juan')))&&g.categoria!=='Pago Deuda');
+  const soloYurby=gastos.filter(g=>g.compartido==='NO'&&(g.pagopor==='Yurby'||(!g.pagopor&&g.tarjeta&&g.tarjeta.includes('Yurby')))&&g.categoria!=='Pago Deuda');
+
   const wb=XLSX.utils.book_new();
-  const data=[
+
+  // HOJA 1: RESUMEN
+  const resumen=[
     ['CUADRATURA MENSUAL - '+mesNom],
     [],
-    ['RESUMEN','Yurby','Juan'],
+    ['','Yurby','Juan'],
     ['Gastos personales','$'+fmt(soloY),'$'+fmt(soloJ)],
     ['Gastos compartidos pagados','$'+fmt(compY),'$'+fmt(compJ)],
     ['Total compartido del mes','$'+fmt(compY+compJ),''],
-    ['Mitad que corresponde a cada uno','$'+fmt(mitad),'$'+fmt(mitad)],
+    ['Mitad que le corresponde a cada uno','$'+fmt(mitad),'$'+fmt(mitad)],
     [],
     ['RESULTADO'],
-    [debeY>0?'Yurby le deposita a Juan':debeJ>0?'Juan le deposita a Yurby':'Están cuadrados',
-     debeY>0?'$'+fmt(debeY):debeJ>0?'$'+fmt(debeJ):'$0'],
+    [debeY>0?'→ Yurby le deposita a Juan':debeJ>0?'→ Juan le deposita a Yurby':'→ Están cuadrados',
+     debeY>0?'$'+fmt(debeY):debeJ>0?'$'+fmt(debeJ):'$0',''],
   ];
-  const ws=XLSX.utils.aoa_to_sheet(data);
-  ws['!cols']=[{wch:35},{wch:20},{wch:20}];
-  XLSX.utils.book_append_sheet(wb,ws,'Cuadratura '+mesNom);
+  const wsRes=XLSX.utils.aoa_to_sheet(resumen);
+  wsRes['!cols']=[{wch:38},{wch:20},{wch:20}];
+  XLSX.utils.book_append_sheet(wb,wsRes,'Resumen');
+
+  // HOJA 2: DETALLE COMPARTIDOS JUAN
+  const detJuan=[['GASTOS COMPARTIDOS - JUAN pagó'],['Fecha','Detalle','Categoria','Monto']];
+  compJuan.forEach(g=>detJuan.push([g.fecha,g.detalle,g.categoria,Number(g.monto)]));
+  detJuan.push([]);
+  detJuan.push(['TOTAL','','','$'+fmt(compY)]);
+  const wsJ=XLSX.utils.aoa_to_sheet(detJuan);
+  wsJ['!cols']=[{wch:14},{wch:35},{wch:20},{wch:14}];
+  XLSX.utils.book_append_sheet(wb,wsJ,'Compartidos Juan');
+
+  // HOJA 3: DETALLE COMPARTIDOS YURBY
+  const detYurby=[['GASTOS COMPARTIDOS - YURBY pagó'],['Fecha','Detalle','Categoria','Monto']];
+  compYurby.forEach(g=>detYurby.push([g.fecha,g.detalle,g.categoria,Number(g.monto)]));
+  detYurby.push([]);
+  detYurby.push(['TOTAL','','','$'+fmt(compJ)]);
+  const wsY=XLSX.utils.aoa_to_sheet(detYurby);
+  wsY['!cols']=[{wch:14},{wch:35},{wch:20},{wch:14}];
+  XLSX.utils.book_append_sheet(wb,wsY,'Compartidos Yurby');
+
+  // HOJA 4: GASTOS PERSONALES
+  const detPersonal=[['GASTOS PERSONALES DEL MES'],['Fecha','Detalle','Categoria','Monto','Quien']];
+  [...soloYurby,...soloJuan].sort((a,b)=>a.fecha>b.fecha?1:-1).forEach(g=>
+    detPersonal.push([g.fecha,g.detalle,g.categoria,Number(g.monto),g.pagopor||g.quien]));
+  const wsP=XLSX.utils.aoa_to_sheet(detPersonal);
+  wsP['!cols']=[{wch:14},{wch:35},{wch:20},{wch:14},{wch:10}];
+  XLSX.utils.book_append_sheet(wb,wsP,'Gastos Personales');
+
+  // HOJA 5: TODO EL MES
+  const detTodo=[['TODOS LOS GASTOS DEL MES - '+mesNom],
+    ['Fecha','Detalle','Categoria','Monto','Quien pago','Compartido','Estado']];
+  gastos.forEach(g=>detTodo.push([g.fecha,g.detalle,g.categoria,Number(g.monto),
+    g.pagopor||g.quien,g.compartido==='SI'?'SI':'NO',
+    g.estado==='cerrado'?'CUADRADO':g.estado==='pagado'?'PAGADO':'PENDIENTE']));
+  const wsTodo=XLSX.utils.aoa_to_sheet(detTodo);
+  wsTodo['!cols']=[{wch:14},{wch:35},{wch:20},{wch:14},{wch:12},{wch:12},{wch:12}];
+  XLSX.utils.book_append_sheet(wb,wsTodo,'Todo el Mes');
+
   XLSX.writeFile(wb,'Cuadratura_'+mesNom.replace(' ','_')+'.xlsx');
 }
 
