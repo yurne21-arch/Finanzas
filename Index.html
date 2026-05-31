@@ -71,6 +71,7 @@ h1{font-size:1.6rem;font-weight:700;margin-bottom:2px;}
     <button onclick="show('tarjetas',this)">Tarjetas</button>
     <button onclick="show('cuentas',this)">Cuentas</button>
     <button onclick="show('presupuesto',this)">Presupuesto</button>
+    <button onclick="show('cuadratura',this)" style="background:#8E44AD;color:white;border-color:#8E44AD;">⚖️ Cuadratura</button>
     <button onclick="show('metas',this)">Metas</button>
     <button onclick="show('deudas',this)">Deudas</button>
   </div>
@@ -113,6 +114,17 @@ h1{font-size:1.6rem;font-weight:700;margin-bottom:2px;}
             <option>Imprevistos</option><option>Contribucion</option>
           </select>
           <select id="q-quien"><option>Yurby</option><option>Juan</option><option>Ambos</option></select>
+        </div>
+        <div class="mrow">
+          <select id="q-pagopor" style="flex:1;">
+            <option value="Yurby">💳 Pagó Yurby</option>
+            <option value="Juan">💳 Pagó Juan</option>
+            <option value="Ambos">💳 Pagaron Ambos</option>
+          </select>
+          <select id="q-compartido" style="flex:1;">
+            <option value="SI">👫 Gasto compartido</option>
+            <option value="NO">👤 Gasto personal</option>
+          </select>
         </div>
         <select id="q-tar" class="sel-full" onchange="toggleCuotas()">
           <option>Debito Yurby</option><option>Credito Yurby (Falabella)</option>
@@ -199,6 +211,15 @@ h1{font-size:1.6rem;font-weight:700;margin-bottom:2px;}
       <button onclick="cambiarMes(1)">&#8250;</button>
     </div>
     <div id="presupuesto-content"><div class="loading">Cargando...</div></div>
+  </div>
+
+  <div class="screen" id="s-cuadratura">
+    <div class="month-nav">
+      <button onclick="cambiarMes(-1)">&#8249;</button>
+      <span class="month-label" id="cuadratura-mes">Mayo 2026</span>
+      <button onclick="cambiarMes(1)">&#8250;</button>
+    </div>
+    <div id="cuadratura-content"><div class="loading">Cargando...</div></div>
   </div>
 
   <div class="screen" id="s-metas">
@@ -291,6 +312,7 @@ function show(id,btn){
   btn.classList.add('active');
   if(['resumen','tarjetas','cuentas','presupuesto'].includes(id))cargar();
   if(id==='presupuesto'){rPresupuesto();return;}
+  if(id==='cuadratura'){rCuadratura();return;}
   if(id==='metas')rMetas();
   if(id==='deudas')rDeudas();
 }
@@ -309,7 +331,7 @@ function cambiarMes(d){
 
 function labels(){
   const l=MESES[mes-1]+' '+anio;
-  ['mes-label','resumen-mes','tarjetas-mes','presupuesto-mes'].forEach(id=>{const e=document.getElementById(id);if(e)e.textContent=l;});
+  ['mes-label','resumen-mes','tarjetas-mes','presupuesto-mes','cuadratura-mes'].forEach(id=>{const e=document.getElementById(id);if(e)e.textContent=l;});
 }
 
 async function cargar(){
@@ -658,6 +680,163 @@ function rMetas(){
   document.getElementById('metas-content').innerHTML=h;
 }
 
+
+async function rCuadratura(){
+  const el=document.getElementById('cuadratura-content');
+  el.innerHTML='<div class="loading">Calculando cuadratura...</div>';
+  let gastos=[];
+  try{
+    gastos=await sb('gastos','GET',null,`?mes=eq.${mes}&anno=eq.${anio}&order=id.asc`);
+  }catch(e){el.innerHTML='<div class="alerta danger">Error: '+e.message+'</div>';return;}
+
+  // Separar gastos
+  const gYurby=gastos.filter(g=>g.pagopor==='Yurby'||(!g.pagopor&&g.tarjeta&&g.tarjeta.includes('Yurby')));
+  const gJuan=gastos.filter(g=>g.pagopor==='Juan'||(!g.pagopor&&g.tarjeta&&g.tarjeta.includes('Juan')));
+  const gAmbos=gastos.filter(g=>g.pagopor==='Ambos');
+
+  // Compartidos pagados por cada uno
+  const compYurby=gastos.filter(g=>g.compartido==='SI'&&(g.pagopor==='Yurby'||(!g.pagopor&&g.tarjeta&&g.tarjeta.includes('Yurby')))&&g.categoria!=='Pago Deuda');
+  const compJuan=gastos.filter(g=>g.compartido==='SI'&&(g.pagopor==='Juan'||(!g.pagopor&&g.tarjeta&&g.tarjeta.includes('Juan')))&&g.categoria!=='Pago Deuda');
+  const soloYurby=gastos.filter(g=>g.compartido==='NO'&&(g.pagopor==='Yurby'||(!g.pagopor&&g.tarjeta&&g.tarjeta.includes('Yurby')))&&g.categoria!=='Pago Deuda');
+  const soloJuan=gastos.filter(g=>g.compartido==='NO'&&(g.pagopor==='Juan'||(!g.pagopor&&g.tarjeta&&g.tarjeta.includes('Juan')))&&g.categoria!=='Pago Deuda');
+
+  const tCompYurby=compYurby.reduce((a,g)=>a+Number(g.monto),0);
+  const tCompJuan=compJuan.reduce((a,g)=>a+Number(g.monto),0);
+  const tSoloYurby=soloYurby.reduce((a,g)=>a+Number(g.monto),0);
+  const tSoloJuan=soloJuan.reduce((a,g)=>a+Number(g.monto),0);
+  const totalComp=tCompYurby+tCompJuan;
+  const mitadComp=Math.round(totalComp/2);
+
+  // Cuanto debe cada uno de los compartidos
+  const debeYurby=mitadComp-tCompYurby; // si positivo, Yurby le debe a Juan
+  const debeJuan=mitadComp-tCompJuan;   // si positivo, Juan le debe a Yurby
+
+  const pendientes=gastos.filter(g=>!g.estado||g.estado==='registrado'||g.estado==='pendiente');
+
+  let h='';
+
+  // Panel principal resultado
+  h+=`<div style="background:white;border-radius:16px;border:2px solid #8E44AD;padding:20px;margin-bottom:14px;">
+    <div style="font-size:0.7rem;font-weight:700;color:#8E44AD;text-transform:uppercase;letter-spacing:1px;margin-bottom:14px;">Cuadratura ${MESES[mes-1]} ${anio}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+      <div style="background:#F5EEF8;border-radius:12px;padding:14px;">
+        <div class="gcat">Yurby pagó solo</div>
+        <div style="font-size:1.1rem;font-weight:700;color:#8E44AD;">$${fmt(tSoloYurby)}</div>
+      </div>
+      <div style="background:#EBF5FB;border-radius:12px;padding:14px;">
+        <div class="gcat">Juan pagó solo</div>
+        <div style="font-size:1.1rem;font-weight:700;color:#2980B9;">$${fmt(tSoloJuan)}</div>
+      </div>
+      <div style="background:#F5EEF8;border-radius:12px;padding:14px;">
+        <div class="gcat">Yurby pagó compartido</div>
+        <div style="font-size:1.1rem;font-weight:700;color:#8E44AD;">$${fmt(tCompYurby)}</div>
+      </div>
+      <div style="background:#EBF5FB;border-radius:12px;padding:14px;">
+        <div class="gcat">Juan pagó compartido</div>
+        <div style="font-size:1.1rem;font-weight:700;color:#2980B9;">$${fmt(tCompJuan)}</div>
+      </div>
+    </div>
+    <div style="background:#F5F3EF;border-radius:12px;padding:14px;margin-bottom:12px;">
+      <div class="gcat" style="margin-bottom:6px;">Total gastos compartidos del mes</div>
+      <div style="font-size:1.2rem;font-weight:700;">$${fmt(totalComp)}</div>
+      <div class="gcat">La mitad corresponde a $${fmt(mitadComp)} cada uno</div>
+    </div>
+    <div style="border-radius:14px;padding:18px;text-align:center;${debeYurby>0?'background:#F5EEF8;border:2px solid #8E44AD;':debeJuan>0?'background:#EBF5FB;border:2px solid #2980B9;':'background:#EAFAF1;border:2px solid #27AE60;'}">
+      ${debeYurby>0
+        ?`<div style="font-size:0.9rem;color:#8E44AD;margin-bottom:4px;">Resultado de la cuadratura</div>
+           <div style="font-size:1.4rem;font-weight:700;color:#8E44AD;">Yurby le deposita a Juan</div>
+           <div style="font-size:2rem;font-weight:700;color:#8E44AD;">$${fmt(debeYurby)}</div>`
+        :debeJuan>0
+        ?`<div style="font-size:0.9rem;color:#2980B9;margin-bottom:4px;">Resultado de la cuadratura</div>
+           <div style="font-size:1.4rem;font-weight:700;color:#2980B9;">Juan le deposita a Yurby</div>
+           <div style="font-size:2rem;font-weight:700;color:#2980B9;">$${fmt(debeJuan)}</div>`
+        :`<div style="font-size:1.2rem;font-weight:700;color:#27AE60;">✓ Están cuadrados</div>`
+      }
+    </div>
+  </div>`;
+
+  // Gastos pendientes de cuadrar
+  if(pendientes.length>0){
+    h+=`<div class="alerta warn">${pendientes.length} gastos pendientes de cuadrar este mes.</div>`;
+  }
+
+  // Botones accion
+  h+=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">
+    <button onclick="cerrarCuadratura()" style="padding:14px;border-radius:14px;border:none;background:#27AE60;color:white;font-size:0.9rem;font-weight:700;font-family:'DM Sans',sans-serif;cursor:pointer;">✓ Cerrar cuadratura</button>
+    <button onclick="exportarCuadratura(${debeYurby},${debeJuan},${mitadComp},${tCompYurby},${tCompJuan},${tSoloYurby},${tSoloJuan})" style="padding:14px;border-radius:14px;border:2px solid #8E44AD;background:white;color:#8E44AD;font-size:0.9rem;font-weight:700;font-family:'DM Sans',sans-serif;cursor:pointer;">⬇️ Descargar resumen</button>
+  </div>`;
+
+  // Detalle gastos compartidos
+  h+=`<div class="stitle">Gastos compartidos del mes</div>`;
+  const todosComp=[...compYurby,...compJuan].sort((a,b)=>a.fecha>b.fecha?1:-1);
+  if(todosComp.length===0){
+    h+=`<div class="alerta info">No hay gastos compartidos registrados este mes.</div>`;
+  } else {
+    todosComp.forEach(g=>{
+      const esY=g.pagopor==='Yurby'||(!g.pagopor&&g.tarjeta&&g.tarjeta.includes('Yurby'));
+      h+=`<div class="grow">
+        <div><div style="font-weight:700;">${g.detalle}</div>
+        <div class="gcat">${g.categoria} · ${g.fecha} · <span style="color:${esY?'#8E44AD':'#2980B9'};font-weight:700;">Pagó ${esY?'Yurby':'Juan'}</span></div></div>
+        <span style="font-weight:700;">$${fmt(g.monto)}</span>
+      </div>`;
+    });
+  }
+
+  // Gastos personales Yurby
+  h+=`<div class="stitle">Gastos personales Yurby</div>`;
+  if(soloYurby.length===0){
+    h+=`<div class="alerta info">Sin gastos personales este mes.</div>`;
+  } else {
+    soloYurby.forEach(g=>{
+      h+=`<div class="grow"><div><div style="font-weight:700;">${g.detalle}</div><div class="gcat">${g.categoria} · ${g.fecha}</div></div><span style="font-weight:700;color:#8E44AD;">$${fmt(g.monto)}</span></div>`;
+    });
+  }
+
+  // Gastos personales Juan
+  h+=`<div class="stitle">Gastos personales Juan</div>`;
+  if(soloJuan.length===0){
+    h+=`<div class="alerta info">Sin gastos personales este mes.</div>`;
+  } else {
+    soloJuan.forEach(g=>{
+      h+=`<div class="grow"><div><div style="font-weight:700;">${g.detalle}</div><div class="gcat">${g.categoria} · ${g.fecha}</div></div><span style="font-weight:700;color:#2980B9;">$${fmt(g.monto)}</span></div>`;
+    });
+  }
+
+  el.innerHTML=h;
+}
+
+async function cerrarCuadratura(){
+  if(!confirm('¿Cerrar cuadratura del mes? Todos los gastos pendientes quedarán como CUADRADO.'))return;
+  try{
+    await sb('gastos','PATCH',{estado:'cerrado'},`?mes=eq.${mes}&anno=eq.${anio}&estado=eq.registrado`);
+    alert('✓ Cuadratura cerrada. Todos los gastos marcados como cuadrados.');
+    cache=null;
+    rCuadratura();
+  }catch(e){alert('Error: '+e.message);}
+}
+
+function exportarCuadratura(debeY,debeJ,mitad,compY,compJ,soloY,soloJ){
+  const mesNom=MESES[mes-1]+' '+anio;
+  const wb=XLSX.utils.book_new();
+  const data=[
+    ['CUADRATURA MENSUAL - '+mesNom],
+    [],
+    ['RESUMEN','Yurby','Juan'],
+    ['Gastos personales','$'+fmt(soloY),'$'+fmt(soloJ)],
+    ['Gastos compartidos pagados','$'+fmt(compY),'$'+fmt(compJ)],
+    ['Total compartido del mes','$'+fmt(compY+compJ),''],
+    ['Mitad que corresponde a cada uno','$'+fmt(mitad),'$'+fmt(mitad)],
+    [],
+    ['RESULTADO'],
+    [debeY>0?'Yurby le deposita a Juan':debeJ>0?'Juan le deposita a Yurby':'Están cuadrados',
+     debeY>0?'$'+fmt(debeY):debeJ>0?'$'+fmt(debeJ):'$0'],
+  ];
+  const ws=XLSX.utils.aoa_to_sheet(data);
+  ws['!cols']=[{wch:35},{wch:20},{wch:20}];
+  XLSX.utils.book_append_sheet(wb,ws,'Cuadratura '+mesNom);
+  XLSX.writeFile(wb,'Cuadratura_'+mesNom.replace(' ','_')+'.xlsx');
+}
+
 async function rDeudas(){
   const{fijas,extra}=getDeudas();
   const total=fijas.reduce((a,d)=>a+d.cuota,0)+extra.reduce((a,d)=>a+d.cuota,0);
@@ -753,13 +932,15 @@ async function guardarG(){
   const cat=document.getElementById('q-cat').value;
   const quien=document.getElementById('q-quien').value;
   const tar=document.getElementById('q-tar').value;
+  const pagopor=document.getElementById('q-pagopor').value;
+  const compartido=document.getElementById('q-compartido').value;
   const fi=document.getElementById('q-fecha').value;
   const fecha=fmtFechaInput(fi);
   const partes=fecha.split('/');
   const mG=parseInt(partes[1]),aG=parseInt(partes[2]);
   document.getElementById('ok-g').innerHTML=`<div class="ok-msg">Guardando...</div>`;
   try{
-    await sb('gastos','POST',{fecha,detalle:det,categoria:cat,monto,quien,tarjeta:tar,mes:mG,anno:aG});
+    await sb('gastos','POST',{fecha,detalle:det,categoria:cat,monto,quien,tarjeta:tar,pagopor,compartido,mes:mG,anno:aG});
     // Mover dinero entre cuentas segun logica
     if(cat==='Contribucion' && (tar==='Debito Yurby'||tar==='Debito Juan')){
       // Abono mensual: sale de debito y entra al RUT
